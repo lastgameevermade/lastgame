@@ -55,7 +55,7 @@ for (let i = 0; i < count; i++) {
 
 // Cost that grows with play time: five minutes may not cost twice as much per tick as one.
 const [short, long] = [perTick['core/growth_short'], perTick['core/growth_long']];
-if (short !== undefined && long !== undefined && long > 0.05 && long > 2 * short) {
+if (short !== undefined && long !== undefined && long > 0.01 && long > 2 * short) {
   console.log(`FAIL core/growth: a tick costs ${long.toFixed(3)} ms over five minutes against ${short.toFixed(3)} ms over one: the game slows down the longer it runs`);
 }
 console.log(`METRIC ticks ${ticks}`);
