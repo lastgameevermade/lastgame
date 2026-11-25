@@ -1,0 +1,3 @@
+paths
+rewrites the CI workflow to fake a verdict
+pull requests may only change

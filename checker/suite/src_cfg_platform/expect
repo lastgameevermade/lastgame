@@ -1,0 +1,3 @@
+source
+behaves differently outside the test platform
+`cfg` is not allowed

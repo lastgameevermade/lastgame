@@ -1,0 +1,4 @@
+# The game can never take more than 256 MiB, in the playtests or in a
+# player's browser: the cap is in the wasm itself. The checker verifies it.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "link-arg=--max-memory=268435456"]

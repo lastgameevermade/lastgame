@@ -1,0 +1,63 @@
+# Every commit on main: full checks, then the release build and its sha256.
+# Anyone can rebuild the same commit with scripts/build.sh and compare.
+name: main
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Fetch
+        env:
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          git init -q src && cd src
+          git fetch -q --no-tags --depth=1 "https://github.com/$REPO" "$SHA"
+          git checkout -q --detach FETCH_HEAD
+
+      - name: Checks and release build (networking off)
+        run: |
+          docker build -q -t lastgame-build src
+          docker run --rm --network none -v "$PWD/src:/src" lastgame-build sh -c '
+            set -e
+            cargo test -q --offline --locked -p api -p checker
+            cargo build -q --release --locked --offline -p checker
+            target/release/checker --out web/status.json
+            sh checker/suite/run.sh
+            cargo build -q --release --locked --offline --target wasm32-unknown-unknown -p engine
+            cp target/wasm32-unknown-unknown/release/engine.wasm web/game.wasm'
+          echo "game.wasm sha256: \`$(sha256sum src/web/game.wasm | cut -d' ' -f1)\`" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Desk tests (networking off)
+        run: docker run --rm --network none -v "$PWD/src:/src" -w /src "$NODE" node --no-warnings desk/test.mjs
+        env:
+          NODE: node@sha256:873f586f3794f52281bd039bf02c048a0be08fde619338f9941bad1eb6b34530 # node:24-slim
+
+      # Turned on with the repository variable DEPLOY=on once Cloudflare is set up (desk/README.md).
+      # Every package is pinned by hash in deploy/package-lock.json and no install scripts run.
+      - name: Deploy the site, game and desk
+        if: vars.DEPLOY == 'on'
+        env:
+          NODE: node@sha256:873f586f3794f52281bd039bf02c048a0be08fde619338f9941bad1eb6b34530 # node:24-slim
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          docker run --rm -e CLOUDFLARE_API_TOKEN -e CLOUDFLARE_ACCOUNT_ID -v "$PWD/src:/src" -w /src/deploy "$NODE" sh -c '
+            set -e
+            npm ci --ignore-scripts --no-audit --no-fund
+            npx --no-install wrangler d1 execute lastgame --remote --config ../wrangler.toml --file ../desk/schema.sql
+            npx --no-install wrangler deploy --config ../wrangler.toml'
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-${{ github.sha }}
+          path: src/web
+          retention-days: 90

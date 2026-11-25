@@ -1,0 +1,3 @@
+source
+tells an ARM browser from an x86 test machine by the sign of NaN
+`is_sign_negative` is not allowed

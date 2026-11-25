@@ -1,0 +1,110 @@
+# TRUSTED: runs from the default branch with a write token. It never checks
+# out or runs pull request code, and treats the `check` artifact as untrusted
+# data. It alone sets the `lastgame/verdict` commit status, which branch
+# protection requires.
+name: verdict
+
+on:
+  workflow_run:
+    workflows: [check]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+  pull-requests: write
+  statuses: write
+
+jobs:
+  verdict:
+    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion != 'cancelled'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      RUN_URL: ${{ github.event.workflow_run.html_url }}
+      HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+    steps:
+      - name: Judge and post
+        run: |
+          set -euo pipefail
+          status() {
+            gh api -X POST "repos/$REPO/statuses/$HEAD_SHA" -f state="$1" -f context=lastgame/verdict \
+              -f description="$2" -f target_url="$RUN_URL" > /dev/null
+          }
+
+          if ! gh run download "$RUN_ID" -R "$REPO" -n verdict -D v; then
+            status error "FAULT: the check produced no verdict"
+            exit 0
+          fi
+          pr=$(jq -r '.pr' v/verdict.json)
+          if ! [[ "$pr" =~ ^[0-9]{1,7}$ ]]; then
+            status error "FAULT: unreadable verdict"
+            exit 0
+          fi
+
+          info=$(gh api "repos/$REPO/pulls/$pr")
+          # The run must be about this pull request's current head, or it is stale.
+          if [ "$(jq -r .head.sha <<< "$info")" != "$HEAD_SHA" ] || [ "$(jq -r .state <<< "$info")" != open ]; then
+            echo "Stale or closed, nothing to post."
+            exit 0
+          fi
+          # Only pull requests into the default branch, judged by a run from their own fork.
+          if [ "$(jq -r .base.ref <<< "$info")" != "$(jq -r .base.repo.default_branch <<< "$info")" ] \
+             || [ "$(jq -r .head.repo.full_name <<< "$info")" != "$HEAD_REPO" ]; then
+            echo "Run does not belong to this pull request."
+            exit 0
+          fi
+
+          verdict=$(jq -r '.verdict' v/verdict.json)
+          case "$verdict" in ACCEPTED|REJECTED|FAULT) ;; *) verdict=FAULT ;; esac
+          stage=$(jq -r '.stage | tostring' v/verdict.json | tr -cd 'a-z' | head -c 20)
+          reasons=$(jq -r '[.reasons[]? | tostring | .[0:800]] | .[0:20] | join("\n")' v/verdict.json | tr -d '`' | head -c 12000)
+
+          # The path rule, from GitHub's own file list. Whatever the artifact says.
+          assoc=$(jq -r .author_association <<< "$info")
+          if [ "$assoc" != OWNER ] && [ "$assoc" != MEMBER ]; then
+            n=$(jq -r .changed_files <<< "$info")
+            if [ "$n" -gt 300 ]; then
+              verdict=REJECTED; stage=paths; reasons="$n files changed, at most 300 per pull request"
+            else
+              # Either module files (any change) or new test files (added only), never both.
+              mod_re='^modules/[a-z][a-z0-9_]{0,31}/([a-z][a-z0-9_]{0,31}/){0,2}[a-z][a-z0-9_]{0,31}\.rs$'
+              test_re='^tests/[ctrp][0-9]{1,3}_[a-z0-9_]{1,28}/([a-z][a-z0-9_]{0,31}/){0,2}[a-z][a-z0-9_]{0,31}\.rs$'
+              bad="" mods=0 tests=0
+              while IFS=$'\t' read -r st file prev; do
+                [ -n "$file" ] || continue
+                if [[ "$file" =~ $mod_re ]] && { [ -z "$prev" ] || [[ "$prev" =~ $mod_re ]]; }; then
+                  mods=1
+                elif [[ "$file" =~ $test_re ]] && [ "$st" = added ] && [ -z "$prev" ]; then
+                  tests=1
+                else
+                  bad+="$st $file ${prev}"$'\n'
+                fi
+              done < <(gh api --paginate "repos/$REPO/pulls/$pr/files" --jq '.[] | [.status, .filename, (.previous_filename // "")] | @tsv')
+              if [ "$mods" = 1 ] && [ "$tests" = 1 ]; then
+                bad+="changes modules and adds tests in one pull request: tests come first, code second"$'\n'
+              fi
+              if [ -n "$bad" ]; then
+                verdict=REJECTED; stage=paths
+                reasons=$(printf 'Pull requests may only change modules/<name>/**.rs, or only add tests/<goal>_<name>/**.rs. Not allowed here:\n%s' "$bad")
+              fi
+            fi
+          fi
+
+          case "$verdict" in ACCEPTED) state=success ;; REJECTED) state=failure ;; *) state=error ;; esac
+          status "$state" "$verdict at stage $stage"
+
+          body=$(printf '<!-- lastgame-verdict -->\n**%s** at stage `%s` for %s\n\n```text\n%s\n```\n\n[Checker run](%s)\n' \
+            "$verdict" "$stage" "${HEAD_SHA:0:7}" "${reasons:-no findings}" "$RUN_URL")
+          id=$(gh api --paginate "repos/$REPO/issues/$pr/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- lastgame-verdict -->"))) | .id' | head -n 1)
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$id" -f body="$body" > /dev/null
+          else
+            gh api -X POST "repos/$REPO/issues/$pr/comments" -f body="$body" > /dev/null
+          fi

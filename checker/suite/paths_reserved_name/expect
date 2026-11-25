@@ -1,0 +1,3 @@
+paths
+module named core to shadow the core crate
+pull requests may only change

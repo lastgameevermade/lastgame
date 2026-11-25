@@ -1,0 +1,3 @@
+source
+reads an address through a method instead of a cast
+`addr` is not allowed

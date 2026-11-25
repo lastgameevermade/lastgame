@@ -1,0 +1,3 @@
+playtest
+mesh index points past its vertices (would crash the renderer)
+index outside its vertices

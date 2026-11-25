@@ -1,0 +1,28 @@
+# One Cloudflare Worker: the desk (desk/src/worker.js) plus the static site and
+# game (web/). main.yml deploys it on every green commit to main.
+# Setup steps: desk/README.md.
+name = "lastgame"
+main = "desk/src/worker.js"
+compatibility_date = "2026-11-01"
+
+[assets]
+directory = "web"
+binding = "ASSETS"
+run_worker_first = ["/api/*", "/desk/*", "/hooks/*", "/login", "/login/*", "/admin/*", "/a/*"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "lastgame"
+database_id = "REPLACE_WITH_THE_ID_FROM_wrangler_d1_create"
+
+[triggers]
+crons = ["*/10 * * * *"]
+
+[vars]
+REPO = "lastgameevermade/lastgame"
+SITE = "https://lastgameevermade.com"
+GITHUB_CLIENT_ID = "REPLACE"
+GITHUB_APP_ID = "REPLACE"
+GITHUB_INSTALLATION_ID = "REPLACE"
+# Secrets, set once with `npx wrangler secret put <NAME>`:
+#   GITHUB_CLIENT_SECRET, GITHUB_APP_KEY (PKCS#8 PEM), WEBHOOK_SECRET, STATE_SECRET, ADMIN_KEY

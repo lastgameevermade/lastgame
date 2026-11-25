@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "description": "Pinned deploy tool. package-lock.json fixes every transitive version and hash; CI installs with npm ci --ignore-scripts.",
+  "devDependencies": {
+    "wrangler": "4.168.0"
+  }
+}

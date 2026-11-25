@@ -1,0 +1,3 @@
+source
+inline assembly
+`asm` is not allowed

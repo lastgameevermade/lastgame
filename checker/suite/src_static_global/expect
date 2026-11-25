@@ -1,0 +1,3 @@
+source
+counts worlds in a global to tell tests from players
+`static` is not allowed

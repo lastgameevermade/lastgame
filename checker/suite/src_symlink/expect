@@ -1,0 +1,3 @@
+source
+module file is a symlink to a secret on the build machine
+is a symlink

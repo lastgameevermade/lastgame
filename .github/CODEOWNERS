@@ -1,0 +1,5 @@
+# Everything but modules needs a core team review (branch protection requires
+# two). Modules are judged by the checker and the review quorum instead.
+*          @lastgameevermade/core
+/modules/
+/modules/AGENTS.md  @lastgameevermade/core

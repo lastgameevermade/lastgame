@@ -1,0 +1,3 @@
+source
+reads a build machine file at compile time without quotes
+`include_str` is not allowed

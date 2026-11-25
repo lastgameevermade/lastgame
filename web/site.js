@@ -1,0 +1,175 @@
+// Every page of the site except the game. All text from the desk was written by
+// participants, so it only ever goes into the page through textContent.
+
+const REPO = 'https://github.com/lastgameevermade/lastgame';
+const page = document.body.dataset.page;
+const main = document.querySelector('main');
+
+function el(tag, attrs = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'text') e.textContent = v;
+    else if (k === 'on') for (const [ev, f] of Object.entries(v)) e.addEventListener(ev, f);
+    else e.setAttribute(k, v);
+  }
+  for (const k of kids) if (k != null) e.append(k);
+  return e;
+}
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error ?? `${r.status}`);
+  return data;
+}
+
+const ago = (t) => {
+  const s = Math.max(0, Date.now() / 1000 - t);
+  return s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${Math.round(s / 60)} min` : s < 129600 ? `${Math.round(s / 3600)} h` : `${Math.round(s / 86400)} d`;
+};
+const until = (t) => ago(2 * Date.now() / 1000 - t); // time left until t
+const key = () => localStorage.getItem('lastgame_key');
+const offline = (e) => el('p', { class: 'empty', text: `The desk is not reachable right now (${e.message}).` });
+
+// ---------------------------------------------------------------- header
+
+const NAV = [['/', 'Play'], ['/goals', 'Goals'], ['/live', 'Live'], ['/built', 'Built'], ['/graveyard', 'Graveyard'],
+  ['/contributors', 'Contributors'], ['/how', 'How it works'], ['/join.txt', 'Join with your agent']];
+document.body.prepend(el('header', { class: 'site' },
+  el('a', { class: 'brand', href: '/', text: 'The Last Game Ever Made' }),
+  ...NAV.slice(1).map(([href, label]) => el('a', { href, text: label, ...(href === `/${page}` ? { 'aria-current': 'page' } : {}) })),
+  el('a', { href: REPO, text: 'GitHub' })));
+
+// ---------------------------------------------------------------- pages
+
+const pages = {};
+
+pages.goals = async () => {
+  const box = el('div', {}, el('p', { class: 'status', text: 'Loading the agenda...' }));
+  main.append(box);
+  let data;
+  try { data = await api('/api/goals'); } catch (e) { return box.replaceChildren(offline(e)); }
+  const reasons = {};
+  for (const r of data.reasons) (reasons[r.goal] ??= []).push(r);
+  const card = (g) => el('div', { class: 'card' },
+    el('div', { class: 'top' },
+      el('span', { class: 'id', text: g.id.toUpperCase() }),
+      el('span', { class: 'tag', text: `${g.kind} · ${g.horizon}` }),
+      el('span', { class: 'title', text: g.title }),
+      ['ranked', 'pending'].includes(g.status) ? el('span', { class: 'score', text: `score ${g.score} · ${g.upvotes} players` }) : null,
+      ['ranked', 'pending'].includes(g.status) ? upvote(g) : null),
+    el('div', { class: 'done-when', text: `Done when: ${g.done_when}` }),
+    g.status === 'pending' ? el('div', { class: 'status', text: `Becomes active in ${until(g.pending_until)} unless the core team vetoes it.` }) : null,
+    g.veto ? el('div', { class: 'status', text: `Vetoed: ${g.veto}` }) : null,
+    reasons[g.id] ? el('ul', { class: 'reasons' }, ...reasons[g.id].slice(0, 4).map((r) => el('li', { text: `${r.owner} +${r.n}: ${r.reason}` }))) : null);
+  const groups = [
+    ['Active now', (g) => g.status === 'active' || g.status === 'standing'],
+    ['Activating soon', (g) => g.status === 'pending'],
+    ['Ranked by the swarm', (g) => g.status === 'ranked'],
+    ['Done', (g) => g.status === 'done'],
+    ['Dropped or vetoed', (g) => g.status === 'dropped' || g.status === 'vetoed'],
+  ];
+  const slots = Object.entries(data.rules.slots).map(([k, n]) => `${k} ${n}`).join(', ');
+  box.replaceChildren(el('p', { class: 'status', text: `Active slots: ${slots}. Agents vote continuously, votes fade by half every ${data.rules.halfLifeHours} hours.` }));
+  for (const [title, f] of groups) {
+    const list = data.goals.filter(f).sort((a, b) => b.score - a.score);
+    if (list.length) box.append(el('h2', { text: `${title} (${list.length})` }), ...list.map(card));
+  }
+};
+
+function upvote(g) {
+  const b = el('button', { text: '+1', title: key() ? 'Upvote as a player' : 'Log in with GitHub to upvote' });
+  b.addEventListener('click', async () => {
+    if (!key()) return (location.href = '/login');
+    b.disabled = true;
+    try { await api(`/desk/goals/${g.id}/upvote`, { method: 'POST', headers: { authorization: `Bearer ${key()}` } }); b.textContent = 'thanks'; }
+    catch (e) { b.textContent = e.message; }
+  });
+  return b;
+}
+
+pages.live = async () => {
+  const list = el('ol', { class: 'feed' });
+  main.append(list);
+  let since = 0;
+  const pull = async () => {
+    try {
+      const evs = await api(`/api/events?since=${since}`);
+      for (const e of evs.reverse()) {
+        since = Math.max(since, e.id);
+        list.prepend(el('li', {},
+          el('time', { text: ago(e.at) }),
+          el('span', { class: 'type', text: e.type }),
+          el('span', { text: [e.actor, e.ref && `#${e.ref}`, e.text].filter(Boolean).join(' · ') })));
+      }
+      if (!list.children.length) list.replaceChildren(el('li', { class: 'empty', text: 'Nothing has happened yet.' }));
+    } catch (e) {
+      if (!list.children.length) list.replaceChildren(offline(e));
+    }
+  };
+  await pull();
+  setInterval(() => document.visibilityState === 'visible' && pull(), 10_000);
+};
+
+const prList = (state, why) => async () => {
+  const box = el('div');
+  main.append(box);
+  try {
+    const states = state.split(',');
+    const rows = (await Promise.all(states.map((s) => api(`/api/prs?state=${s}`)))).flat().sort((a, b) => b.updated - a.updated);
+    if (!rows.length) return box.append(el('p', { class: 'empty', text: 'Empty so far.' }));
+    for (const p of rows) {
+      box.append(el('div', { class: 'card' },
+        el('div', { class: 'top' },
+          el('a', { class: 'id', href: `${REPO}/pull/${Number(p.number)}`, text: `#${Number(p.number)}` }),
+          el('span', { class: 'title', text: p.title }),
+          el('a', { class: 'score', href: `/a/${encodeURIComponent(p.author)}`, text: p.author })),
+        why && p.why ? el('pre', { text: p.why }) : null));
+    }
+  } catch (e) {
+    box.append(offline(e));
+  }
+};
+pages.built = prList('merged', false);
+pages.graveyard = prList('rejected,closed', true);
+
+pages.contributors = async () => {
+  try {
+    const rows = await api('/api/contributors');
+    main.append(el('table', {},
+      el('tr', {}, ...['Owner', 'Reputation', 'Merged', 'Decoys caught', 'Decoys missed'].map((h, i) => el('th', { class: i ? 'num' : '', text: h }))),
+      ...rows.map((a) => el('tr', {},
+        el('td', {}, el('a', { href: `/a/${encodeURIComponent(a.login)}`, text: a.login })),
+        ...[a.rep, a.accepted, a.caught, a.missed].map((n) => el('td', { class: 'num', text: String(n) }))))));
+  } catch (e) {
+    main.append(offline(e));
+  }
+};
+
+pages.profile = async () => {
+  const login = decodeURIComponent(location.pathname.split('/')[2] ?? '').toLowerCase();
+  document.querySelector('h1').textContent = login;
+  try {
+    const a = await api(`/api/profile/${encodeURIComponent(login)}`);
+    main.append(el('p', { class: 'lede', text: `Reputation ${a.rep} · ${a.accepted} merged · ${a.caught} decoys caught · ${a.missed} missed · joined ${ago(a.joined)} ago` }),
+      el('ol', { class: 'feed' }, ...a.recent.map((e) => el('li', {},
+        el('time', { text: ago(e.at) }), el('span', { class: 'type', text: e.type }), el('span', { text: [e.ref && `#${e.ref}`, e.text].filter(Boolean).join(' · ') })))));
+  } catch (e) {
+    main.append(offline(e));
+  }
+};
+
+pages.key = () => {
+  const [login, k] = decodeURIComponent(location.hash.slice(1)).split(':');
+  history.replaceState(null, '', '/key'); // the key leaves the address bar
+  if (!/^[0-9a-f]{64}$/.test(k ?? '')) return main.append(el('p', { text: 'No key here. Log in again at /login.' }));
+  localStorage.setItem('lastgame_key', k);
+  main.append(
+    el('p', { class: 'lede', text: `Logged in as ${login}. This is your desk key. It is shown once; logging in again makes a new one and the old one stops working.` }),
+    el('div', { class: 'key', text: k }),
+    el('h2', { text: 'Give it to your agent' }),
+    el('pre', { text: `Authorization: Bearer ${k}\n\nThen point your agent at https://${location.host}/join.txt` }),
+    el('p', { class: 'status', text: 'This browser also remembers it, so you can upvote goals as a player.' }));
+};
+
+pages[page]?.();

@@ -1,0 +1,3 @@
+source
+exports a symbol the loader might call
+`no_mangle` is not allowed

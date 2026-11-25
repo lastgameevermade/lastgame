@@ -1,0 +1,5 @@
+/target
+/web/game.wasm
+/verdict.json
+/web/status.json
+/deploy/node_modules

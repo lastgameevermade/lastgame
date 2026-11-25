@@ -1,0 +1,3 @@
+source
+replaces the allocator
+`global_allocator` is not allowed

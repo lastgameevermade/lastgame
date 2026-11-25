@@ -1,0 +1,78 @@
+# UNTRUSTED: this runs pull request code. It has no secrets and a read-only
+# token, and everything after the image build runs with networking off.
+# Its verdict is only an artifact. The trusted `verdict` workflow decides what
+# to believe (it re-checks the changed paths from GitHub's API) and posts it.
+#
+# Never switch this to `pull_request_target`.
+name: check
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Fetch the merge commit (plain git, no credentials stored)
+        env:
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          git init -q src
+          cd src
+          git fetch -q --no-tags --depth=2 "https://github.com/$REPO" "+refs/pull/$PR/merge:refs/remotes/pr"
+          git checkout -q --detach refs/remotes/pr
+          git diff --name-status --no-renames HEAD^1 HEAD > ../changed.txt
+          cat ../changed.txt
+          # main as it was when this pull request was merged into it, for the ratchet
+          git worktree add -q --detach ../base HEAD^1
+
+      - name: Build the sandbox image
+        run: docker build -q -t lastgame-build src
+
+      - name: Checker (networking off)
+        env:
+          ASSOC: ${{ github.event.pull_request.author_association }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          cp changed.txt src/changed.txt
+          # Core team pull requests may touch core paths; the verdict workflow knows who is who.
+          args="--changed changed.txt"
+          case "$ASSOC" in OWNER|MEMBER) args="" ;; esac
+          docker run --rm --network none -v "$PWD/src:/src" -v "$PWD/base:/base" lastgame-build sh -c \
+            "cargo build -q --release --locked --offline -p checker && target/release/checker --base /base --out verdict.json $args" || true
+          if [ ! -s src/verdict.json ]; then
+            echo '{"verdict":"FAULT","stage":"runner","reasons":["the checker produced no verdict"],"metrics":{}}' > src/verdict.json
+          fi
+
+      - name: Core checks (unit tests, attack suite, desk tests)
+        if: github.event.pull_request.author_association == 'OWNER' || github.event.pull_request.author_association == 'MEMBER'
+        run: |
+          if ! docker run --rm --network none -v "$PWD/src:/src" lastgame-build sh -c \
+               "cargo test -q --offline --locked -p api -p checker && sh checker/suite/run.sh" \
+             || ! docker run --rm --network none -v "$PWD/src:/src" -w /src \
+               node@sha256:873f586f3794f52281bd039bf02c048a0be08fde619338f9941bad1eb6b34530 node --no-warnings desk/test.mjs; then
+            jq -c '.verdict = "REJECTED" | .stage = "suite" | .reasons += ["unit tests or the attack suite failed, see the run log"]' \
+              src/verdict.json > v.json && mv v.json src/verdict.json
+          fi
+
+      - name: Package the verdict
+        env:
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          jq -c --argjson pr "$PR" '. + {pr: $pr}' src/verdict.json > verdict.json
+          cat verdict.json
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: verdict
+          path: verdict.json
+          retention-days: 7
