@@ -3,7 +3,8 @@
 # the repo, and fails unless every verdict is what the case expects.
 # Usage (from the repo root): scripts/suite.sh, which runs this in the build image.
 # expect: line 1 stage (or ACCEPTED), line 2 what the attack is, optional
-# line 3 text the checker output must contain. SUITE_ONLY=pt_ runs a subset.
+# line 3 text the checker output must contain (alternatives split by " | ").
+# SUITE_ONLY=pt_ runs a subset.
 # files/ is laid over a fresh copy of the repo; an optional `changed` file
 # replaces the generated `A<tab>path` list, for cases that edit or delete.
 set -u
@@ -33,8 +34,18 @@ for dir in checker/suite/${SUITE_ONLY:-}*/; do
     *) ok=$([ "$got" = "REJECTED $want" ] && echo y) ;;
   esac
   reason=$(grep -m 1 '^  - ' "$work/out.txt" | cut -c 5- | head -c 100)
-  # Rejected for the reason the case is about, not by accident.
-  if [ -n "$because" ] && ! grep -qF -- "$because" "$work/out.txt"; then ok=""; fi
+  # Rejected for the reason the case is about, not by accident. Alternatives are
+  # separated by " | " where timing decides which rule fires first.
+  if [ -n "$because" ]; then
+    hit=""
+    rest="$because"
+    while [ -n "$rest" ]; do
+      alt=${rest%% | *}
+      grep -qF -- "$alt" "$work/out.txt" && hit=y
+      [ "$alt" = "$rest" ] && rest="" || rest=${rest#* | }
+    done
+    [ -n "$hit" ] || ok=""
+  fi
   if [ "${ok:-}" = y ]; then
     pass=$((pass + 1)); printf 'ok    %-24s %-18s %s\n' "$name" "$got" "$reason"
   else
