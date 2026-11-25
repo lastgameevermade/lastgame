@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import desk, { RULES, agenda, cost, credits, decay, doneGoals, pickReviewers, rep, score, tick, DAY, HOUR } from './src/worker.js';
-import { hmac, sha256 } from './src/github.js';
+import { hmac, pkcs8, sha256 } from './src/github.js';
+import { generateKeyPairSync } from 'node:crypto';
 
 // ---------------------------------------------------------------- pure rules
 
@@ -29,6 +30,14 @@ assert.deepEqual(doneGoals([{ id: 'c1', status: 'active' }, { id: 'c2', status: 
   { green: ['c1_a', 'c2_a', 'c12_x'], red: ['c2_b'] }), ['c1'], 'c12_ is not c1_, a red test blocks');
 assert.equal(pickReviewers([acct({ login: 'a', bonus: 9 })], 'z', 3, 200 * DAY), null, 'not enough reviewers');
 
+// GitHub's PKCS#1 key works as is.
+{
+  const { privateKey: pk1 } = generateKeyPairSync('rsa', { modulusLength: 2048, privateKeyEncoding: { type: 'pkcs1', format: 'pem' }, publicKeyEncoding: { type: 'spki', format: 'pem' } });
+  assert.ok(pk1.includes('BEGIN RSA PRIVATE KEY'));
+  const key = await crypto.subtle.importKey('pkcs8', pkcs8(pk1), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+  assert.ok((await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new Uint8Array([1, 2, 3]))).byteLength === 256);
+}
+
 // ---------------------------------------------------------------- a desk with a fake GitHub
 
 const db = new DatabaseSync(':memory:');
@@ -51,6 +60,7 @@ const d1 = {
 
 let clock = 400 * DAY;
 let mainStatus = null;
+let seedGoalsFile = { goals: [{ id: 'c77', kind: 'content', horizon: 'S', title: 'Seeded goal', done_when: 'it was seeded from goals.json' }] };
 const calls = [];
 const { privateKey } = await crypto.subtle.generateKey(
   { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
@@ -58,11 +68,17 @@ const pem = `-----BEGIN PRIVATE KEY-----\n${Buffer.from(await crypto.subtle.expo
 const env = {
   DB: d1, NOW: () => clock, REPO: 'o/lastgame', SITE: 'https://site', WEBHOOK_SECRET: 'whs', STATE_SECRET: 'sts', ADMIN_KEY: 'adm',
   GITHUB_APP_ID: '1', GITHUB_APP_KEY: pem, GITHUB_INSTALLATION_ID: '2', GITHUB_CLIENT_ID: 'cid', GITHUB_CLIENT_SECRET: 'cs',
-  ASSETS: { fetch: async (r) => (new URL(r.url).pathname === '/status.json' && mainStatus ? Response.json(mainStatus) : new Response('nope', { status: 404 })) },
+  ASSETS: { fetch: async (r) => {
+    const p = new URL(r.url).pathname;
+    if (p === '/status.json' && mainStatus) return Response.json(mainStatus);
+    if (p === '/goals.json' && seedGoalsFile) return Response.json(seedGoalsFile);
+    return new Response('nope', { status: 404 });
+  } },
 };
 globalThis.fetch = async (url, opts = {}) => {
   calls.push({ url: String(url), method: opts.method ?? 'GET', body: opts.body ? JSON.parse(opts.body) : null });
   if (String(url).endsWith('/access_tokens')) return Response.json({ token: 't', expires_at: new Date(Date.now() + 3600e3).toISOString() });
+  if (String(url).endsWith('/contents/.github/core-team')) return Response.json({ content: btoa('# core\nBoss\n') });
   return Response.json({ ok: true });
 };
 
@@ -98,6 +114,13 @@ for (const r of ['r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7']) await person(r, { bo
 await person('decoybot');
 await person('planner', { bonus: 10 }); // stays eligible whatever the random decoy draw does
 await person('boss', { core: 1 });
+
+// An empty database seeds itself from goals.json on the first tick.
+await tick(env);
+assert.equal(row("SELECT title FROM goals WHERE id = 'c77'").title, 'Seeded goal');
+db.prepare("DELETE FROM goals").run();
+db.prepare("DELETE FROM events").run();
+seedGoalsFile = null;
 
 // Seed goals, vote, activate.
 assert.equal((await call('POST', '/admin/goals', 'core', { goals: [
@@ -154,7 +177,7 @@ assert.ok((await call('GET', '/desk/next?kind=code', 'alice')).data.lease, 'with
 calls.length = 0;
 assert.equal(await hook('pull_request', { action: 'opened', pull_request: pr(11, 'stranger', 'h9', 'hi') }), 200);
 assert.ok(ghCalls('/pulls/11').some((c) => c.method === 'PATCH' && c.body.state === 'closed'));
-assert.equal(await hook('pull_request', { action: 'opened', pull_request: pr(12, 'boss', 'h8', '', { author_association: 'MEMBER' }) }), 200);
+assert.equal(await hook('pull_request', { action: 'opened', pull_request: pr(12, 'boss', 'h8', '') }), 200);
 assert.equal(row('SELECT COUNT(*) AS c FROM prs WHERE number = 12').c, 0, 'core pull requests never go through the desk');
 
 // A decoy: two reviewers miss it, one catches it.

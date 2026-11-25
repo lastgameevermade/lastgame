@@ -389,6 +389,19 @@ async function merge(env, number) {
 
 // ---------------------------------------------------------------- GitHub webhooks
 
+let coreCache = { list: [], until: 0 };
+
+/** Core team logins from .github/core-team on the default branch, cached for five minutes. */
+async function coreTeam(env) {
+  const t = now(env);
+  if (coreCache.until > t) return coreCache.list;
+  const r = await gh(env, 'GET', `/repos/${env.REPO}/contents/.github/core-team`);
+  const text = r.ok && typeof r.data?.content === 'string' ? atob(r.data.content.replace(/\s/g, '')) : '';
+  const list = text.split('\n').map((l) => l.trim().toLowerCase()).filter((l) => l && !l.startsWith('#'));
+  if (r.ok) coreCache = { list, until: t + 300 };
+  return list;
+}
+
 async function webhook(env, req) {
   const raw = await req.text();
   if (!(await verifyWebhook(env.WEBHOOK_SECRET, raw, req.headers.get('x-hub-signature-256')))) return fail(401, 'bad signature');
@@ -401,7 +414,7 @@ async function webhook(env, req) {
     const pr = p.pull_request;
     const n = pr.number;
     const author = pr.user.login.toLowerCase();
-    const core = ['OWNER', 'MEMBER'].includes(pr.author_association);
+    const core = (await coreTeam(env)).includes(author);
     if (p.action === 'opened' || p.action === 'reopened') {
       const leaseId = /Lease:\s*([0-9a-f]{12})/.exec(pr.body ?? '')?.[1] ?? null;
       const l = leaseId ? await one(env, "SELECT * FROM leases WHERE id = ? AND status IN ('active', 'submitted')", leaseId) : null;
@@ -484,6 +497,17 @@ export async function tick(env) {
   // Rounds that were waiting for reviewers, and approvals waiting for a merge.
   for (const pr of await all(env, "SELECT * FROM prs WHERE state = 'checked'")) await startRound(env, pr);
   for (const pr of await all(env, "SELECT * FROM prs WHERE state = 'approved'")) await merge(env, pr.number);
+
+  // A fresh database starts with the seed backlog from GOALS.md (web/goals.json, made by main.yml).
+  if (env.ASSETS && !(await one(env, 'SELECT id FROM goals LIMIT 1'))) {
+    const seed = await env.ASSETS.fetch(new Request(`${env.SITE}/goals.json`));
+    const goals = seed.ok ? (await seed.json().catch(() => null))?.goals : null;
+    for (const g of Array.isArray(goals) ? goals : []) {
+      await run(env, 'INSERT OR IGNORE INTO goals (id, kind, horizon, title, done_when, depends, status, proposer, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        g.id, g.kind, g.horizon, g.title, g.done_when, g.depends ?? '', g.status ?? 'ranked', 'core', t);
+    }
+    if (goals?.length) await event(env, 'admin.goals', 'core', '', `${goals.length} seed goals`);
+  }
 
   // Main's own verdict: red main freezes merges, green tests finish goals.
   const res = env.ASSETS ? await env.ASSETS.fetch(new Request(`${env.SITE}/status.json`)) : null;

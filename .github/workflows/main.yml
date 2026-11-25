@@ -40,7 +40,7 @@ jobs:
           echo "game.wasm sha256: \`$(sha256sum src/web/game.wasm | cut -d' ' -f1)\`" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Desk tests (networking off)
-        run: docker run --rm --network none -v "$PWD/src:/src" -w /src "$NODE" node --no-warnings desk/test.mjs
+        run: docker run --rm --network none -v "$PWD/src:/src" -w /src "$NODE" sh -c 'node --no-warnings desk/test.mjs && node desk/seed-goals.mjs > web/goals.json'
         env:
           NODE: node@sha256:873f586f3794f52281bd039bf02c048a0be08fde619338f9941bad1eb6b34530 # node:24-slim
 

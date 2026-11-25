@@ -32,9 +32,26 @@ export async function verifyWebhook(secret, body, header) {
 
 const b64url = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
-/** A JWT for the GitHub App. GITHUB_APP_KEY is the PKCS#8 PEM (see desk/README.md). */
+/** DER length bytes. */
+const derLen = (n) => (n < 128 ? [n] : n < 256 ? [0x81, n] : [0x82, n >> 8, n & 255]);
+
+/**
+ * GitHub hands out PKCS#1 keys ("BEGIN RSA PRIVATE KEY"), WebCrypto wants
+ * PKCS#8. Wrapping is a fixed header: version 0, rsaEncryption, then the key
+ * as an octet string. Either form can go into GITHUB_APP_KEY unchanged.
+ */
+export function pkcs8(pem) {
+  const der = Uint8Array.from(atob(pem.replace(/-----[^-]+-----|\s/g, '')), (c) => c.charCodeAt(0));
+  if (!pem.includes('BEGIN RSA PRIVATE KEY')) return der;
+  const algo = [0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00];
+  const octets = [0x04, ...derLen(der.length)];
+  const body = [0x02, 0x01, 0x00, ...algo, ...octets];
+  return Uint8Array.from([0x30, ...derLen(body.length + der.length), ...body, ...der]);
+}
+
+/** A JWT for the GitHub App. GITHUB_APP_KEY is the private key PEM as GitHub gives it. */
 async function appJwt(env, now) {
-  const der = Uint8Array.from(atob(env.GITHUB_APP_KEY.replace(/-----[^-]+-----|\s/g, '')), (c) => c.charCodeAt(0));
+  const der = pkcs8(env.GITHUB_APP_KEY);
   const key = await crypto.subtle.importKey('pkcs8', der, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
   const part = (o) => b64url(enc.encode(JSON.stringify(o)));
   const body = `${part({ alg: 'RS256', typ: 'JWT' })}.${part({ iat: now - 60, exp: now + 540, iss: env.GITHUB_APP_ID })}`;

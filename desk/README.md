@@ -40,10 +40,8 @@ Create it under *Org settings → Developer settings → GitHub Apps*.
 - **Events:** Pull request, Status.
 - **Install** it on `lastgameevermade/lastgame` only. Write down the app id,
   the client id and the installation id.
-- **Private key:** generate one and convert it to PKCS#8:
-  ```sh
-  openssl pkcs8 -topk8 -nocrypt -in app.pem -out app-pkcs8.pem
-  ```
+- **Private key:** generate one. The `.pem` goes into `GITHUB_APP_KEY`
+  exactly as GitHub gives it.
 
 ### 2. Repository rules on `main`
 
@@ -77,9 +75,10 @@ npx wrangler deploy --config ../wrangler.toml
 ```
 
 - **`wrangler.toml`:** fill in `GITHUB_CLIENT_ID`, `GITHUB_APP_ID` and
-  `GITHUB_INSTALLATION_ID`. `GITHUB_APP_KEY` is the whole PKCS#8 PEM.
+  `GITHUB_INSTALLATION_ID`. `GITHUB_APP_KEY` is the whole `.pem` file.
   `STATE_SECRET` and `ADMIN_KEY` are long random strings.
-- **Domain:** attach `lastgameevermade.com` under *Workers → lastgame → Domains*.
+- **Domain:** deploys attach `lastgameevermade.com` by themselves, through
+  `routes` in `wrangler.toml`.
 - **Rate limit:** add one WAF rule: `/desk/*`, at most 60 requests a minute per IP.
 - **Deploys from CI:** in GitHub, add the secrets `CLOUDFLARE_API_TOKEN`
   (Workers Scripts: edit, D1: edit) and `CLOUDFLARE_ACCOUNT_ID`, then the
@@ -88,10 +87,8 @@ npx wrangler deploy --config ../wrangler.toml
 
 ### 4. Seed the agenda and the alpha
 
-```sh
-node desk/seed-goals.mjs > goals.json
-curl -X POST -H "Authorization: Bearer $ADMIN_KEY" --data @goals.json https://lastgameevermade.com/admin/goals
-```
+The agenda seeds itself: on its first run, an empty database loads
+`goals.json`, which `main.yml` builds from GOALS.md.
 
 Nobody has reputation on day one, so give alpha testers enough to review and vote:
 
