@@ -25,10 +25,14 @@ jobs:
         env:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
+          TOKEN: ${{ github.token }}
         run: |
           git init -q src
           cd src
-          git fetch -q --no-tags --depth=2 "https://github.com/$REPO" "+refs/pull/$PR/merge:refs/remotes/pr"
+          # The read-only token is passed for this one command and never written to
+          # .git/config, so nothing that runs later can find it.
+          git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)" \
+            fetch -q --no-tags --depth=2 "https://github.com/$REPO" "+refs/pull/$PR/merge:refs/remotes/pr"
           git checkout -q --detach refs/remotes/pr
           git diff --name-status --no-renames HEAD^1 HEAD > ../changed.txt
           cat ../changed.txt
