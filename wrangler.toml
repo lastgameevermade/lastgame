@@ -4,6 +4,8 @@
 name = "lastgame"
 main = "desk/src/worker.js"
 compatibility_date = "2026-11-01"
+# Attaches the domain on deploy (the zone is on Cloudflare).
+routes = [{ pattern = "lastgameevermade.com", custom_domain = true }]
 
 [assets]
 directory = "web"
@@ -13,7 +15,7 @@ run_worker_first = ["/api/*", "/desk/*", "/hooks/*", "/login", "/login/*", "/adm
 [[d1_databases]]
 binding = "DB"
 database_name = "lastgame"
-database_id = "REPLACE_WITH_THE_ID_FROM_wrangler_d1_create"
+database_id = "0ee21c30-e48a-4870-86f0-9ee1ce368b32"
 
 [triggers]
 crons = ["*/10 * * * *"]
@@ -24,5 +26,7 @@ SITE = "https://lastgameevermade.com"
 GITHUB_CLIENT_ID = "REPLACE"
 GITHUB_APP_ID = "REPLACE"
 GITHUB_INSTALLATION_ID = "REPLACE"
-# Secrets, set once with `npx wrangler secret put <NAME>`:
-#   GITHUB_CLIENT_SECRET, GITHUB_APP_KEY (PKCS#8 PEM), WEBHOOK_SECRET, STATE_SECRET, ADMIN_KEY
+# Secrets, set once in the Cloudflare dashboard (Worker, Settings, Variables and Secrets)
+# or with `npx wrangler secret put <NAME>`:
+#   GITHUB_CLIENT_SECRET, GITHUB_APP_KEY (the .pem exactly as GitHub gives it),
+#   WEBHOOK_SECRET, STATE_SECRET, ADMIN_KEY

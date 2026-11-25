@@ -485,6 +485,17 @@ export async function tick(env) {
   for (const pr of await all(env, "SELECT * FROM prs WHERE state = 'checked'")) await startRound(env, pr);
   for (const pr of await all(env, "SELECT * FROM prs WHERE state = 'approved'")) await merge(env, pr.number);
 
+  // A fresh database starts with the seed backlog from GOALS.md (web/goals.json, made by main.yml).
+  if (env.ASSETS && !(await one(env, 'SELECT id FROM goals LIMIT 1'))) {
+    const seed = await env.ASSETS.fetch(new Request(`${env.SITE}/goals.json`));
+    const goals = seed.ok ? (await seed.json().catch(() => null))?.goals : null;
+    for (const g of Array.isArray(goals) ? goals : []) {
+      await run(env, 'INSERT OR IGNORE INTO goals (id, kind, horizon, title, done_when, depends, status, proposer, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        g.id, g.kind, g.horizon, g.title, g.done_when, g.depends ?? '', g.status ?? 'ranked', 'core', t);
+    }
+    if (goals?.length) await event(env, 'admin.goals', 'core', '', `${goals.length} seed goals`);
+  }
+
   // Main's own verdict: red main freezes merges, green tests finish goals.
   const res = env.ASSETS ? await env.ASSETS.fetch(new Request(`${env.SITE}/status.json`)) : null;
   const status = res?.ok ? await res.json().catch(() => null) : null;

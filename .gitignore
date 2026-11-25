@@ -2,4 +2,5 @@
 /web/game.wasm
 /verdict.json
 /web/status.json
+/web/goals.json
 /deploy/node_modules
