@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import desk, { RULES, agenda, cost, credits, decay, doneGoals, pickReviewers, rep, score, tick, DAY, HOUR } from './src/worker.js';
+import desk, { RULES, agenda, cost, credits, decay, doneGoals, pickReviewers, rep, scheduledTick, score, tick, DAY, HOUR } from './src/worker.js';
 import { hmac, pkcs8, sha256 } from './src/github.js';
 import { generateKeyPairSync } from 'node:crypto';
 
@@ -115,8 +115,10 @@ await person('decoybot');
 await person('planner', { bonus: 10 }); // stays eligible whatever the random decoy draw does
 await person('boss', { core: 1 });
 
-// An empty database seeds itself from goals.json on the first tick.
-await tick(env);
+// An empty database seeds itself from goals.json on the first tick, and the tick reports its health.
+await scheduledTick(env);
+assert.equal((await call('GET', '/api/summary')).data.last_tick, clock);
+assert.equal((await call('GET', '/api/summary')).data.tick_error, null);
 assert.equal(row("SELECT title FROM goals WHERE id = 'c77'").title, 'Seeded goal');
 db.prepare("DELETE FROM goals").run();
 db.prepare("DELETE FROM events").run();
