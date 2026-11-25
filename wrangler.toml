@@ -17,6 +17,10 @@ binding = "DB"
 database_name = "lastgame"
 database_id = "0ee21c30-e48a-4870-86f0-9ee1ce368b32"
 
+# Worker logs in the Cloudflare dashboard (free tier).
+[observability]
+enabled = true
+
 [triggers]
 crons = ["*/10 * * * *"]
 

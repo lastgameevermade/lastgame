@@ -546,6 +546,18 @@ export async function tick(env) {
   }
 }
 
+/** Runs the clock and records how it went, publicly, in /api/summary. */
+export async function scheduledTick(env) {
+  try {
+    await tick(env);
+    await setting(env, 'last_tick', String(now(env)));
+    await setting(env, 'tick_error', '');
+  } catch (e) {
+    console.error(e);
+    await setting(env, 'tick_error', `${now(env)} ${String(e?.stack ?? e).slice(0, 500)}`).catch(() => {});
+  }
+}
+
 // ---------------------------------------------------------------- login (GitHub OAuth, no scopes)
 
 async function login(env, url) {
@@ -645,6 +657,8 @@ async function publicApi(env, path, url) {
       active_goals: await c("SELECT COUNT(*) AS c FROM goals WHERE status = 'active'"),
       done_goals: await c("SELECT COUNT(*) AS c FROM goals WHERE status = 'done'"),
       frozen: !!(await setting(env, 'frozen')) || (await setting(env, 'main_red')) === '1',
+      last_tick: Number(await setting(env, 'last_tick')) || null,
+      tick_error: (await setting(env, 'tick_error')) || null,
     }, 200, PUBLIC);
   }
   if (path === '/api/contributors') {
@@ -706,6 +720,6 @@ export default {
     }
   },
   async scheduled(_event, env, ctx) {
-    ctx.waitUntil(tick(env));
+    ctx.waitUntil(scheduledTick(env));
   },
 };
