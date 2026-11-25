@@ -78,6 +78,7 @@ const env = {
 globalThis.fetch = async (url, opts = {}) => {
   calls.push({ url: String(url), method: opts.method ?? 'GET', body: opts.body ? JSON.parse(opts.body) : null });
   if (String(url).endsWith('/access_tokens')) return Response.json({ token: 't', expires_at: new Date(Date.now() + 3600e3).toISOString() });
+  if (String(url).endsWith('/contents/.github/core-team')) return Response.json({ content: btoa('# core\nBoss\n') });
   return Response.json({ ok: true });
 };
 
@@ -176,7 +177,7 @@ assert.ok((await call('GET', '/desk/next?kind=code', 'alice')).data.lease, 'with
 calls.length = 0;
 assert.equal(await hook('pull_request', { action: 'opened', pull_request: pr(11, 'stranger', 'h9', 'hi') }), 200);
 assert.ok(ghCalls('/pulls/11').some((c) => c.method === 'PATCH' && c.body.state === 'closed'));
-assert.equal(await hook('pull_request', { action: 'opened', pull_request: pr(12, 'boss', 'h8', '', { author_association: 'MEMBER' }) }), 200);
+assert.equal(await hook('pull_request', { action: 'opened', pull_request: pr(12, 'boss', 'h8', '') }), 200);
 assert.equal(row('SELECT COUNT(*) AS c FROM prs WHERE number = 12').c, 0, 'core pull requests never go through the desk');
 
 // A decoy: two reviewers miss it, one catches it.

@@ -66,8 +66,10 @@ jobs:
           reasons=$(jq -r '[.reasons[]? | tostring | .[0:800]] | .[0:20] | join("\n")' v/verdict.json | tr -d '`' | head -c 12000)
 
           # The path rule, from GitHub's own file list. Whatever the artifact says.
-          assoc=$(jq -r .author_association <<< "$info")
-          if [ "$assoc" != OWNER ] && [ "$assoc" != MEMBER ]; then
+          # Core team = the logins in .github/core-team on the default branch.
+          author=$(jq -r .user.login <<< "$info" | tr 'A-Z' 'a-z')
+          core=$(gh api "repos/$REPO/contents/.github/core-team" --jq .content | base64 -d | tr -d '\r' | grep -v '^#' | tr 'A-Z' 'a-z')
+          if ! grep -qx -- "$author" <<< "$core"; then
             n=$(jq -r .changed_files <<< "$info")
             if [ "$n" -gt 300 ]; then
               verdict=REJECTED; stage=paths; reasons="$n files changed, at most 300 per pull request"

@@ -44,13 +44,20 @@ jobs:
 
       - name: Checker (networking off)
         env:
+          AUTHOR: ${{ github.event.pull_request.user.login }}
           ASSOC: ${{ github.event.pull_request.author_association }}
-          PR: ${{ github.event.pull_request.number }}
         run: |
           cp changed.txt src/changed.txt
-          # Core team pull requests may touch core paths; the verdict workflow knows who is who.
+          # Core team pull requests may touch core paths. Who is core comes from main
+          # (the base tree), and the trusted verdict workflow checks it again.
+          # Only while main has no list yet, GitHub's own association decides.
           args="--changed changed.txt"
-          case "$ASSOC" in OWNER|MEMBER) args="" ;; esac
+          if [ -f base/.github/core-team ]; then
+            if grep -v '^#' base/.github/core-team | grep -qix -- "$AUTHOR"; then args=""; fi
+          else
+            case "$ASSOC" in OWNER|MEMBER) args="" ;; esac
+          fi
+          echo "core=$([ -z "$args" ] && echo yes || echo no)" >> "$GITHUB_ENV"
           docker run --rm --network none -v "$PWD/src:/src" -v "$PWD/base:/base" lastgame-build sh -c \
             "cargo build -q --release --locked --offline -p checker && target/release/checker --base /base --out verdict.json $args" || true
           if [ ! -s src/verdict.json ]; then
@@ -58,7 +65,7 @@ jobs:
           fi
 
       - name: Core checks (unit tests, attack suite, desk tests)
-        if: github.event.pull_request.author_association == 'OWNER' || github.event.pull_request.author_association == 'MEMBER'
+        if: env.core == 'yes'
         run: |
           if ! docker run --rm --network none -v "$PWD/src:/src" lastgame-build sh -c \
                "cargo test -q --offline --locked -p api -p checker && sh checker/suite/run.sh" \
