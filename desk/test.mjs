@@ -144,7 +144,10 @@ assert.equal((await call('POST', '/desk/goals', 'alice', { kind: 'content', hori
 const proposed = await call('POST', '/desk/goals', 'alice', { kind: 'content', horizon: 'S', title: 'Benches', done_when: 'every pavement has benches' });
 assert.equal(proposed.data.id, 'c3');
 
+db.prepare("INSERT INTO goals (id, kind, horizon, title, done_when, status, proposer, created) VALUES ('r7', 'research', 'L', 'No harness yet', 'a benchmark', 'ranked', 'core', ?)").run(clock);
+assert.equal((await call('POST', '/desk/goals/r7/vote', 'r1', { votes: 2, reason: 'interesting' })).status, 200);
 await tick(env);
+assert.equal(row("SELECT status FROM goals WHERE id = 'r7'").status, 'ranked', 'a research goal without a harness never takes a lot');
 assert.equal(row("SELECT status FROM goals WHERE id = 'c1'").status, 'pending', 'top goal enters the objection window');
 assert.equal(row("SELECT status FROM goals WHERE id = 'c2'").status, 'ranked', 'no votes, no activation');
 clock += 13 * HOUR;
@@ -285,6 +288,10 @@ assert.equal(ghCalls('/actions/runs/77/rerun').length, 1, 'once per main commit'
 await hook('status', { context: 'lastgame/verdict', sha: 'z1', state: 'success', description: ok() });
 assert.equal(ghCalls('/pulls/50/merge').length, 1, 'green on the new main: merged, the only reviewer is the whole quorum');
 db.prepare('UPDATE accounts SET banned = 0').run();
+
+// The front page's one request carries the summary, the agenda and the latest events.
+const home = (await call('GET', '/api/home')).data;
+assert.ok(home.summary.owners > 0 && Array.isArray(home.goals.goals) && home.events.length <= 12);
 
 // Public reads never leak keys.
 const contributors = await call('GET', '/api/contributors');

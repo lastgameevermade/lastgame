@@ -572,7 +572,9 @@ export async function tick(env) {
     goals = await goalRows(env);
   }
 
-  const plan = agenda(goals, t);
+  // A research goal can take a lot only once main has a benchmark harness for it, or nothing could score its entries.
+  const harness = String(status?.metrics?.benchmarks ?? '').split(' ').filter(Boolean);
+  const plan = agenda(goals.map((g) => (g.kind === 'research' && !harness.includes(g.id) ? { ...g, score: 0 } : g)), t);
   for (const id of plan.activate) {
     await run(env, "UPDATE goals SET status = 'active', activated = ? WHERE id = ?", t, id);
     await event(env, 'goal.active', '', id);
@@ -711,7 +713,26 @@ async function admin(env, req, path) {
 
 // ---------------------------------------------------------------- public reads
 
+/**
+ * Public reads are the same for everyone, so each Cloudflare data centre keeps them for the 15
+ * seconds they declare: a front page spike costs the database a few queries a minute, not one per visit.
+ */
+async function cached(req, ctx, make) {
+  const cache = globalThis.caches?.default;
+  const hit = cache ? await cache.match(req) : null;
+  if (hit) return hit;
+  const res = (await make()) ?? fail(404, 'no such endpoint');
+  if (cache && res.status === 200 && /max-age=\d+/.test(res.headers.get('cache-control') ?? '')) ctx?.waitUntil(cache.put(req, res.clone()));
+  return res;
+}
+
 async function publicApi(env, path, url) {
+  if (path === '/api/home') {
+    // Everything the front page shows, in one request.
+    const part = async (p) => (await publicApi(env, p, new URL(p, url))).json();
+    const [summary, goals, events] = await Promise.all([part('/api/summary'), part('/api/goals'), part('/api/events')]);
+    return json({ summary, goals, events: events.slice(0, 12) }, 200, PUBLIC);
+  }
   if (path === '/api/goals') {
     const goals = await goalRows(env);
     const reasons = await all(env, 'SELECT owner, goal, n, reason, day FROM votes WHERE day >= ? ORDER BY day DESC LIMIT 500', Math.floor(now(env) / DAY) - 7);
@@ -764,12 +785,12 @@ async function publicApi(env, path, url) {
 // ---------------------------------------------------------------- router
 
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     const url = new URL(req.url);
     const path = url.pathname;
     const method = req.method;
     try {
-      if (method === 'GET' && path.startsWith('/api/')) return (await publicApi(env, path, url)) ?? fail(404, 'no such endpoint');
+      if (method === 'GET' && path.startsWith('/api/')) return await cached(req, ctx, () => publicApi(env, path, url));
       if (method === 'POST' && path === '/hooks/github') return await webhook(env, req);
       if (method === 'GET' && path === '/login') return await login(env, url);
       if (method === 'GET' && path === '/login/callback') return await callback(env, url);

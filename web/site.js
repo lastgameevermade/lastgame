@@ -242,9 +242,9 @@ pages.home = async () => {
     catch { getSelection().selectAllChildren(document.getElementById('join-line')); document.getElementById('copied').textContent = 'Selected. Copy it with your keyboard.'; }
   });
 
-  const [summary, goals, events, status] = await Promise.all([
-    api('/api/summary').catch(() => null), api('/api/goals').catch(() => null),
-    api('/api/events').catch(() => null), fetch('/status.json').then((r) => (r.ok ? r.json() : null)).catch(() => null)]);
+  const [home, status] = await Promise.all([
+    api('/api/home').catch(() => null), fetch('/status.json').then((r) => (r.ok ? r.json() : null)).catch(() => null)]);
+  const { summary = null, goals = null, events = null } = home ?? {};
 
   if (summary?.phase) {
     const d = Math.floor((Date.now() / 1000 - (summary.phase_since ?? DAY0)) / 86400) + 1;
@@ -257,7 +257,7 @@ pages.home = async () => {
     const n = (v) => el('b', { text: String(v) });
     const young = summary.reviewers < summary.quorum;
     now.replaceChildren('Right now: ', n(plural(summary.owners, 'owner')), ', ', n(plural(summary.merged, 'change')), ' merged, ',
-      n(`${summary.active_goals} of 9`), ' lots filled, ', n(plural(summary.reviewers, 'eligible reviewer')),
+      n(`${goals ? goals.goals.filter((g) => g.status === 'active' || g.status === 'pending').length : summary.active_goals} of 9`), ' lots taken, ', n(plural(summary.reviewers, 'eligible reviewer')),
       young ? ` (a round takes all of them while there are fewer than ${summary.quorum})` : '', '.',
       summary.frozen ? ' Merges are frozen.' : '');
     document.getElementById('young').textContent = young
