@@ -35,6 +35,8 @@ Create it under *Org settings → Developer settings → GitHub Apps*.
   - Contents: read and write (needed to merge).
   - Issues: read and write (needed to comment).
   - Metadata: read.
+  - Actions: read and write (needed to re-run the checker when `main` moved
+    after a verdict, so nothing is merged on a stale check).
   - Commit statuses: **read-only**. GitHub needs it to deliver Status
     events. Never write: only the trusted `verdict` workflow may set
     `lastgame/verdict`.

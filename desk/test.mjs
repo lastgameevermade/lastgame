@@ -62,6 +62,8 @@ let clock = 400 * DAY;
 let mainStatus = null;
 let seedGoalsFile = { goals: [{ id: 'c77', kind: 'content', horizon: 'S', title: 'Seeded goal', done_when: 'it was seeded from goals.json' }] };
 const calls = [];
+let mainSha = 'a'.repeat(40);
+const ok = () => `ACCEPTED at stage ratchet on main ${mainSha.slice(0, 12)}`;
 const { privateKey } = await crypto.subtle.generateKey(
   { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
 const pem = `-----BEGIN PRIVATE KEY-----\n${Buffer.from(await crypto.subtle.exportKey('pkcs8', privateKey)).toString('base64')}\n-----END PRIVATE KEY-----`;
@@ -79,6 +81,8 @@ globalThis.fetch = async (url, opts = {}) => {
   calls.push({ url: String(url), method: opts.method ?? 'GET', body: opts.body ? JSON.parse(opts.body) : null });
   if (String(url).endsWith('/access_tokens')) return Response.json({ token: 't', expires_at: new Date(Date.now() + 3600e3).toISOString() });
   if (String(url).endsWith('/contents/.github/core-team')) return Response.json({ content: btoa('# core\nBoss\n') });
+  if (String(url).endsWith('/git/ref/heads/main')) return Response.json({ object: { sha: mainSha } });
+  if (String(url).includes('/actions/runs?')) return Response.json({ workflow_runs: [{ id: 77, path: '.github/workflows/check.yml', status: 'completed' }] });
   return Response.json({ ok: true });
 };
 
@@ -160,7 +164,7 @@ assert.equal((await call('POST', `/desk/beat?lease=${leaseId}`, 'r1')).status, 4
 // The pull request, the checker, the quorum, the merge.
 assert.equal(await hook('pull_request', { action: 'opened', pull_request: pr(10, 'Alice', 'h1', `Adds the test.\n\nLease: ${leaseId}`) }, 'wrong'), 401, 'forged webhook');
 assert.equal(await hook('pull_request', { action: 'opened', pull_request: pr(10, 'Alice', 'h1', `Adds the test.\n\nLease: ${leaseId}`) }), 200);
-assert.equal(await hook('status', { context: 'lastgame/verdict', sha: 'h1', state: 'success' }), 200);
+assert.equal(await hook('status', { context: 'lastgame/verdict', sha: 'h1', state: 'success', description: ok() }), 200);
 const reviewers = db.prepare('SELECT reviewer FROM reviews WHERE pr = 10').all().map((r) => r.reviewer);
 assert.equal(reviewers.length, 3);
 assert.ok(!reviewers.includes('alice') && !reviewers.includes('young'), 'never the author, never ineligible');
@@ -186,7 +190,7 @@ assert.equal(row('SELECT COUNT(*) AS c FROM prs WHERE number = 12').c, 0, 'core 
 // A decoy: two reviewers miss it, one catches it.
 const decoy = await call('POST', '/admin/decoy', 'core', { task: 1, login: 'decoybot', note: 'the car is ten times faster' });
 assert.equal(await hook('pull_request', { action: 'opened', pull_request: pr(20, 'decoybot', 'd1', `Lease: ${decoy.data.lease}`) }), 200);
-assert.equal(await hook('status', { context: 'lastgame/verdict', sha: 'd1', state: 'success' }), 200);
+assert.equal(await hook('status', { context: 'lastgame/verdict', sha: 'd1', state: 'success', description: ok() }), 200);
 const dr = db.prepare('SELECT * FROM reviews WHERE pr = 20').all();
 const repBefore = Object.fromEntries(dr.map((r) => [r.reviewer, rep(row('SELECT * FROM accounts WHERE login = ?', r.reviewer))]));
 for (const [i, r] of dr.entries()) {
@@ -208,7 +212,7 @@ assert.ok(l2);
 await hook('pull_request', { action: 'opened', pull_request: pr(30, 'alice', 'x1', `Lease: ${l2}`) });
 for (const [round, head] of [[1, 'x1'], [2, 'x2']]) {
   if (round === 2) await hook('pull_request', { action: 'synchronize', pull_request: pr(30, 'alice', 'x2') });
-  await hook('status', { context: 'lastgame/verdict', sha: head, state: 'success' });
+  await hook('status', { context: 'lastgame/verdict', sha: head, state: 'success', description: ok() });
   const r = db.prepare('SELECT * FROM reviews WHERE pr = 30 AND round = ? AND verdict IS NULL').all(round)[0];
   assert.equal((await call('POST', '/desk/review', r.reviewer, { review: r.id, verdict: 'reject', reason: 'does not do what the task says' })).status, 200);
 }
@@ -221,7 +225,7 @@ for (const t of ['Spare task one', 'Spare task two']) await call('POST', '/desk/
 assert.ok((await call('GET', '/desk/next', 'alice')).data.lease, 'third open lease');
 assert.equal((await call('GET', '/desk/next', 'alice')).status, 429, 'at most 3 open leases per owner');
 await hook('pull_request', { action: 'opened', pull_request: pr(40, 'alice', 'y1', `Lease: ${l3}`) });
-await hook('status', { context: 'lastgame/verdict', sha: 'y1', state: 'success' });
+await hook('status', { context: 'lastgame/verdict', sha: 'y1', state: 'success', description: ok() });
 const stale = db.prepare('SELECT * FROM reviews WHERE pr = 40').get();
 await hook('pull_request', { action: 'synchronize', pull_request: pr(40, 'alice', 'y2') });
 assert.equal((await call('POST', '/desk/review', stale.reviewer, { review: stale.id, verdict: 'accept', reason: 'ok' })).status, 410);
@@ -229,7 +233,7 @@ assert.equal((await call('POST', '/desk/review', stale.reviewer, { review: stale
 // Kill switch: a red main or a manual freeze holds approved merges.
 mainStatus = { verdict: 'REJECTED', metrics: {} };
 await tick(env);
-await hook('status', { context: 'lastgame/verdict', sha: 'y2', state: 'success' });
+await hook('status', { context: 'lastgame/verdict', sha: 'y2', state: 'success', description: ok() });
 calls.length = 0;
 for (const r of db.prepare("SELECT * FROM reviews WHERE pr = 40 AND verdict IS NULL").all()) {
   await call('POST', '/desk/review', r.reviewer, { review: r.id, verdict: 'accept', reason: 'fine' });
@@ -243,6 +247,7 @@ assert.equal(ghCalls('/pulls/40/merge').length, 0, 'frozen: no merge');
 await call('POST', '/admin/freeze', 'core', { on: false, why: 'done testing' });
 await tick(env);
 assert.equal(ghCalls('/pulls/40/merge').length, 1, 'unfrozen: the approved merge goes through');
+await hook('pull_request', { action: 'closed', pull_request: pr(40, 'alice', 'y2', '', { merged: true }) });
 assert.equal(row("SELECT status FROM goals WHERE id = 'c1'").status, 'done', 'all c1 tests green on main');
 
 // Cold start: with one eligible reviewer the round has one, and an expired review goes back to them.
@@ -260,15 +265,21 @@ const codeLease = await call('GET', '/desk/next?kind=code', 'planner');
 assert.equal(codeLease.data.task?.kind, 'code', 'a test already on main opens code tasks');
 await call('POST', `/desk/release?lease=${codeLease.data.lease}&reason=other`, 'planner');
 await hook('pull_request', { action: 'opened', pull_request: pr(50, 'alice', 'z1', `Lease: ${l4}`) });
-await hook('status', { context: 'lastgame/verdict', sha: 'z1', state: 'success' });
+await hook('status', { context: 'lastgame/verdict', sha: 'z1', state: 'success', description: ok() });
 assert.deepEqual(db.prepare('SELECT reviewer FROM reviews WHERE pr = 50').all().map((r) => r.reviewer), ['planner']);
 clock += 3 * HOUR;
 await tick(env);
 const again = db.prepare('SELECT * FROM reviews WHERE pr = 50 AND verdict IS NULL').get();
 assert.equal(again?.reviewer, 'planner', 'nobody else: the same reviewer gets another window');
 calls.length = 0;
+mainSha = 'b'.repeat(40); // something else was merged after the verdict
 assert.equal((await call('POST', '/desk/review', 'planner', { review: again.id, verdict: 'accept', reason: 'matches the task' })).status, 200);
-assert.equal(ghCalls('/pulls/50/merge').length, 1, 'the only reviewer is the whole quorum');
+assert.equal(ghCalls('/pulls/50/merge').length, 0, 'a verdict on an older main is not merged');
+assert.equal(ghCalls('/actions/runs/77/rerun').length, 1, 'the checker runs again on the new main');
+await tick(env);
+assert.equal(ghCalls('/actions/runs/77/rerun').length, 1, 'once per main commit');
+await hook('status', { context: 'lastgame/verdict', sha: 'z1', state: 'success', description: ok() });
+assert.equal(ghCalls('/pulls/50/merge').length, 1, 'green on the new main: merged, the only reviewer is the whole quorum');
 db.prepare('UPDATE accounts SET banned = 0').run();
 
 // Public reads never leak keys.

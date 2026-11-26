@@ -391,6 +391,12 @@ async function merge(env, number) {
   if ((await setting(env, 'frozen')) || (await setting(env, 'main_red')) === '1') return;
   const pr = await one(env, 'SELECT * FROM prs WHERE number = ?', number);
   if (pr.state !== 'approved') return;
+  // Merge only what the checker passed on top of today's main. Two changes that are green on
+  // their own can still break each other, so when main moved, the checker runs again first.
+  // The reviews stay valid: the head they reviewed does not change.
+  const main = (await gh(env, 'GET', `/repos/${env.REPO}/git/ref/heads/main`)).data?.object?.sha ?? '';
+  const v = await one(env, 'SELECT base FROM verdicts WHERE pr = ? AND head = ?', number, pr.head);
+  if (!/^[0-9a-f]{40}$/.test(main) || !v?.base || !main.startsWith(v.base)) return recheck(env, pr, main);
   // `sha` makes GitHub refuse if anything was pushed after the review.
   const r = await gh(env, 'PUT', `/repos/${env.REPO}/pulls/${number}/merge`, { sha: pr.head, merge_method: 'squash' });
   if (!r.ok) {
@@ -400,6 +406,20 @@ async function merge(env, number) {
       await run(env, "UPDATE prs SET state = 'open', updated = ? WHERE number = ?", now(env), number);
     }
   }
+}
+
+/** Runs the checker again on the current main, once per head and main commit. */
+async function recheck(env, pr, main) {
+  const key = `recheck:${pr.number}`;
+  if (!main || (await setting(env, key)) === `${pr.head}:${main}`) return;
+  const runs = await gh(env, 'GET', `/repos/${env.REPO}/actions/runs?head_sha=${pr.head}&event=pull_request&per_page=30`);
+  const last = (runs.data?.workflow_runs ?? []).filter((r) => String(r.path).startsWith('.github/workflows/check.yml')).sort((a, b) => b.id - a.id)[0];
+  if (!last || last.status !== 'completed') return; // a run is still going: its verdict decides
+  await setting(env, key, `${pr.head}:${main}`);
+  await gh(env, 'GET', `/repos/${env.REPO}/pulls/${pr.number}`); // GitHub refreshes the test merge with main
+  const r = await gh(env, 'POST', `/repos/${env.REPO}/actions/runs/${last.id}/rerun`);
+  if (!r.ok) return event(env, 'merge.failed', '', pr.number, `could not rerun the checker: ${r.status}`);
+  await event(env, 'merge.recheck', '', pr.number, `main moved to ${main.slice(0, 7)}`);
 }
 
 // ---------------------------------------------------------------- GitHub webhooks
@@ -476,13 +496,20 @@ async function webhook(env, req) {
   if (kind === 'status' && p.context === 'lastgame/verdict') {
     const pr = await one(env, 'SELECT * FROM prs WHERE head = ?', p.sha);
     if (!pr || ['merged', 'rejected', 'closed'].includes(pr.state)) return json({ ignored: 'no open pull request at this head' });
-    if (p.state === 'success' && pr.state === 'open') {
+    // The main commit this verdict was computed on (verdict.yml checked it is on main).
+    const base = /on main ([0-9a-f]{12,40})/.exec(String(p.description ?? ''))?.[1] ?? '';
+    if (p.state === 'success') await run(env, 'INSERT OR REPLACE INTO verdicts (pr, head, base, at) VALUES (?, ?, ?, ?)', pr.number, p.sha, base, t);
+    if (p.state === 'success' && pr.state === 'approved') {
+      await merge(env, pr.number); // a recheck on the new main came back green
+    } else if (p.state === 'success' && pr.state === 'open') {
       await run(env, "UPDATE prs SET state = 'checked', updated = ? WHERE number = ?", t, pr.number);
       await event(env, 'pr.accepted_by_checker', pr.author, pr.number);
       await startRound(env, { ...pr, state: 'checked' });
     } else if (p.state === 'failure') {
-      await run(env, 'UPDATE prs SET why = ?, updated = ? WHERE number = ?', String(p.description ?? '').slice(0, 200), t, pr.number);
+      const reopen = pr.state === 'approved'; // approved, but it breaks on top of the new main
+      await run(env, `UPDATE prs SET why = ?, updated = ?${reopen ? ", state = 'open'" : ''} WHERE number = ?`, String(p.description ?? '').slice(0, 200), t, pr.number);
       await event(env, 'pr.rejected_by_checker', pr.author, pr.number, String(p.description ?? ''));
+      if (reopen) await comment(env, pr.number, 'Approved, but on top of the current main the checker rejects it (see its comment). Update the branch; the checker and a new review round follow.');
     }
     return json({ ok: true });
   }

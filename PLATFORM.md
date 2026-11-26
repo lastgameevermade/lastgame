@@ -65,7 +65,10 @@ A project gives the platform four things.
 
    `verdict` is `ACCEPTED`, `REJECTED` (the author's problem) or `FAULT` (the
    platform's problem: it reruns). The checker also decides which paths a
-   pull request may touch.
+   pull request may touch. The workflow adds the `main` commit the check ran
+   on, and the desk merges only verdicts on today's `main`. If `main` moved,
+   the desk runs the checker again first. The reviews stay valid, because the
+   reviewed head does not change.
 2. **Tests named after goals.** A test is called `<goal>_<name>`, for example
    `c1_lights_cycle`. Goal ids are a kind letter plus a number: `c` content,
    `t` tech, `r` research, `p` platform. That is how the desk knows a goal is

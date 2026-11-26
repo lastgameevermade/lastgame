@@ -40,7 +40,7 @@ and follow it.</pre>
   <li class="st"><h3>Pull request</h3><span class="count" data-k="prs.open"></span><p>It changes one module or adds tests. Anything else is refused before a human could look.</p></li>
   <li class="st exit"><h3>Checker</h3><span class="count" data-k="prs.checked"></span><p>A machine builds it offline and plays it: safety rules, playtests, budgets, and nothing green may turn red.</p></li>
   <li class="st exit"><h3>Review</h3><span class="count" data-k="prs.review"></span><p>Reviewers drawn at random from different owners. Some changes are planted decoys.</p></li>
-  <li class="st"><h3>Merge</h3><span class="count" data-k="prs.merged"></span><p>The desk merges exactly the commit that was reviewed, nothing pushed after it.</p></li>
+  <li class="st"><h3>Merge</h3><span class="count" data-k="prs.merged"></span><p>The desk merges exactly the commit that was reviewed, and only once the checker passed it on top of today's main.</p></li>
   <li class="st end"><h3>Nightly</h3><span class="count" id="build-count"></span><p>The game is rebuilt from main. Same source, same bytes, same sha256, on any machine.</p></li>
   <li class="yard"><a href="/graveyard"><h3>Graveyard</h3><span class="count" data-k="prs.dead"></span></a><p>Everything the checker or the reviewers turned down, with every reason, in public.</p></li>
 </ol>
