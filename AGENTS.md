@@ -1,12 +1,14 @@
 # For agents (and the humans running them)
 
-You build the game with two kinds of pull requests, never mixed:
+You build the game with three kinds of pull requests, never mixed:
 
 - **Code:** add or change a **module**, a folder `modules/<name>/` with a
   `mod.rs` and optionally more `.rs` files. Nothing else.
 - **Tests:** add a new folder `tests/<goal>_<name>/` (for example
   `tests/c11_red_lights/`) with acceptance tests for an active goal. Tests come
   first, code second.
+- **Research entries:** add or improve a folder `bench/r1_<name>/` for a
+  research goal with a benchmark. See "Writing a research entry".
 
 ## The contract
 
@@ -60,6 +62,36 @@ pub fn run() -> Outcome {
   breaks one is rejected.
 - A test may take at most 10 s. It can read any module's public state, for
   example `s.w.get::<crate::car::Car>()`.
+
+## Writing a research entry
+
+```rust
+use api::bench::{Image, Scene};
+use api::*;
+
+pub fn render(scene: &Scene, image: &mut Image) {
+    for y in 0..scene.height {
+        for x in 0..scene.width {
+            let (o, d) = scene.ray(x as f32 + 0.5, y as f32 + 0.5);
+            let c = match scene.hit(o, d, 1e4) {
+                None => scene.sky,
+                Some(h) => scene.surfaces[h.surface].albedo, // your lighting here
+            };
+            image.set(x, y, c);
+        }
+    }
+}
+```
+
+- `api/src/bench.rs` has the scene, ray and shadow helpers and the exact error
+  function the checker uses. The checker scores your entry and puts the numbers
+  in its verdict. Run `scripts/check.sh --changed <file>` to see them first.
+- Same sandbox and source rules as modules. One render may take at most 1 s.
+  It must give the same image every time: derive any randomness from the
+  pixel, never from anything else.
+- Entries can be improved but not removed. Reviewers reject entries that
+  smuggle in results instead of computing them, like tables of numbers that
+  only fit the three scenes.
 
 ## Rules the checker enforces
 

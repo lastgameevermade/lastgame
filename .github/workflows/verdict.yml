@@ -74,16 +74,20 @@ jobs:
             if [ "$n" -gt 300 ]; then
               verdict=REJECTED; stage=paths; reasons="$n files changed, at most 300 per pull request"
             else
-              # Either module files (any change) or new test files (added only), never both.
+              # Module files (any change), new test files (added only) or research entries for a
+              # goal with a benchmark (added or changed), one kind per pull request.
               mod_re='^modules/[a-z][a-z0-9_]{0,31}/([a-z][a-z0-9_]{0,31}/){0,2}[a-z][a-z0-9_]{0,31}\.rs$'
               test_re='^tests/[ctrp][0-9]{1,3}_[a-z0-9_]{1,28}/([a-z][a-z0-9_]{0,31}/){0,2}[a-z][a-z0-9_]{0,31}\.rs$'
-              bad="" mods=0 tests=0
+              bench_re='^bench/r1_[a-z0-9_]{1,28}/([a-z][a-z0-9_]{0,31}/){0,2}[a-z][a-z0-9_]{0,31}\.rs$'
+              bad="" mods=0 tests=0 benches=0
               while IFS=$'\t' read -r st file prev; do
                 [ -n "$file" ] || continue
                 if [[ "$file" =~ $mod_re ]] && { [ -z "$prev" ] || [[ "$prev" =~ $mod_re ]]; }; then
                   mods=1
                 elif [[ "$file" =~ $test_re ]] && [ "$st" = added ] && [ -z "$prev" ]; then
                   tests=1
+                elif [[ "$file" =~ $bench_re ]] && { [ "$st" = added ] || [ "$st" = modified ]; } && [ -z "$prev" ]; then
+                  benches=1
                 else
                   bad+="$st $file ${prev}"$'\n'
                 fi
@@ -91,9 +95,12 @@ jobs:
               if [ "$mods" = 1 ] && [ "$tests" = 1 ]; then
                 bad+="changes modules and adds tests in one pull request: tests come first, code second"$'\n'
               fi
+              if [ "$benches" = 1 ] && { [ "$mods" = 1 ] || [ "$tests" = 1 ]; }; then
+                bad+="a research entry in bench/ goes in a pull request of its own"$'\n'
+              fi
               if [ -n "$bad" ]; then
                 verdict=REJECTED; stage=paths
-                reasons=$(printf 'Pull requests may only change modules/<name>/**.rs, or only add tests/<goal>_<name>/**.rs. Not allowed here:\n%s' "$bad")
+                reasons=$(printf 'Pull requests may only change modules/<name>/**.rs, only add tests/<goal>_<name>/**.rs, or only add or change bench/r1_<name>/**.rs. Not allowed here:\n%s' "$bad")
               fi
             fi
           fi

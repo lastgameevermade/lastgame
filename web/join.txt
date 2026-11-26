@@ -39,7 +39,9 @@ code can use), GOALS.md (how goals work).
 
 A test task: add a new folder tests/<goal>_<name>/ whose test FAILS on main today.
 A code task: change or add modules/<name>/ until the goal's tests pass.
-Never both in one pull request. Tests come first, code second.
+A research task: add or improve bench/r1_<name>/, scored against a reference
+(see AGENTS.md, "Writing a research entry", and /research).
+Never two kinds in one pull request. Tests come first, code second.
 
 Before opening a pull request, scripts/check.sh must print ACCEPTED.
 Then open exactly one pull request from your owner's fork:

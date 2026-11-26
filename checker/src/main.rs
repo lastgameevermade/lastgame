@@ -36,6 +36,11 @@ const BUILD_TIMEOUT: u64 = 600;
 const PLAYTEST_TIMEOUT: u64 = 120;
 /// A single swarm-written test may run at most this long.
 const MAX_TEST_SECONDS: u64 = 10;
+/// A research entry may take at most this long to render one benchmark scene.
+const MAX_BENCH_MS: u64 = 1000;
+const BENCH_TIMEOUT: u64 = 300;
+/// Research goals that have a benchmark harness (engine/src/bench.rs). Entries live in bench/<goal>_<name>/.
+const BENCH_GOALS: &[&str] = &["r1"];
 
 /// Identifiers module code may not contain anywhere, comments included.
 /// Each one is a way out of the sandbox, a way to read the build machine at
@@ -107,9 +112,14 @@ const ENGINE_EXPORTS: &[&str] = &[
     "pt_count", "pt_is_core", "pt_name", "pt_name_len", "pt_run", "pt_ticks", "pt_report", "pt_report_len",
 ];
 
+/// What bench.wasm may export on top of the game's own exports. It is never shipped to players.
+const BENCH_EXPORTS: &[&str] =
+    &["bn_count", "bn_name", "bn_name_len", "bn_scene", "bn_reference", "bn_render", "bn_error", "bn_hash"];
+
 /// Folder names that would shadow crates or keywords. Keep in sync with game/build.rs.
 const RESERVED: &[&str] = &[
-    "alloc", "api", "core", "crate", "game", "harness", "self", "std", "super", "test", "tests", "as", "async",
+    "alloc", "api", "bench", "benches", "core", "crate", "game", "harness", "self", "std", "super", "test", "tests",
+    "as", "async",
     "await", "break",
     "const", "continue", "dyn", "else", "enum", "extern", "false", "fn", "for", "gen", "if", "impl", "in", "let",
     "loop", "match", "mod", "move", "mut", "pub", "ref", "return", "static", "struct", "trait", "true", "type",
@@ -195,9 +205,11 @@ fn main() {
 
 fn run(r: &mut Report, changed: Option<&str>, base: Option<&str>) {
     let mut adds_tests = false;
+    // Which research entries to benchmark: the ones a pull request touches, or all of them on main.
+    let mut bench: Option<Vec<String>> = None;
     if let Some(list) = changed {
         match fs::read_to_string(list) {
-            Ok(text) => adds_tests = check_changed(r, &text),
+            Ok(text) => (adds_tests, bench) = check_changed(r, &text).map_or((false, None), |(t, b)| (t, Some(b))),
             Err(e) => return r.fault(format!("cannot read changed file list {list}: {e}")),
         }
         if r.verdict != Verdict::Accepted {
@@ -208,6 +220,8 @@ fn run(r: &mut Report, changed: Option<&str>, base: Option<&str>) {
     r.stage = "source";
     scan_tree(r, Path::new("modules"), "modules");
     scan_tree(r, Path::new("tests"), "tests");
+    scan_tree(r, Path::new("bench"), "bench");
+    r.metrics.insert("benchmarks".into(), BENCH_GOALS.join(" "));
     if r.verdict != Verdict::Accepted {
         return;
     }
@@ -217,6 +231,10 @@ fn run(r: &mut Report, changed: Option<&str>, base: Option<&str>) {
     let names = |want: bool| now.iter().filter(|(_, ok)| **ok == want).map(|(n, _)| n.as_str()).collect::<Vec<_>>().join(" ");
     r.metrics.insert("tests_green".into(), names(true));
     r.metrics.insert("tests_red".into(), names(false));
+    benchmarks(r, Path::new(&target), bench.as_deref());
+    if r.verdict != Verdict::Accepted {
+        return;
+    }
 
     let Some(base) = base else { return };
     r.stage = "ratchet";
@@ -400,31 +418,114 @@ fn valid_test_path(p: &str) -> bool {
     valid_source_path(p, "tests", valid_test_name)
 }
 
-/// Returns whether the pull request adds tests (as opposed to changing modules).
-fn check_changed(r: &mut Report, list: &str) -> bool {
+/// Returns whether the pull request adds tests, and which research entries it touches.
+fn check_changed(r: &mut Report, list: &str) -> Option<(bool, Vec<String>)> {
     let lines: Vec<&str> = list.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
     if lines.len() > MAX_CHANGED {
         r.reject(format!("{} files changed, at most {MAX_CHANGED} per pull request", lines.len()));
-        return false;
+        return None;
     }
     let (mut modules, mut tests) = (false, false);
+    let mut bench: Vec<String> = Vec::new();
     for line in lines {
         let (status, p) = line.split_once('\t').unwrap_or(("A", line));
         if valid_module_path(p) {
             modules = true;
+        } else if valid_bench_path(p) {
+            if status == "D" {
+                r.reject(format!("{p}: research entries can be improved, not removed"));
+            }
+            let entry = p.split('/').nth(1).unwrap_or("").to_string();
+            if !bench.contains(&entry) {
+                bench.push(entry);
+            }
         } else if valid_test_path(p) {
             tests = true;
             if status != "A" {
                 r.reject(format!("{p}: existing tests cannot be changed or removed, only added"));
             }
         } else {
-            r.reject(format!("touches {p:?}: pull requests may only change modules/<name>/**.rs or add tests/<goal>_<name>/**.rs"));
+            r.reject(format!("touches {p:?}: pull requests may only change modules/<name>/**.rs, add tests/<goal>_<name>/**.rs or change bench/<goal>_<name>/**.rs"));
         }
     }
     if modules && tests {
         r.reject("a pull request either changes modules or adds tests, not both: tests come first, code second");
     }
-    tests
+    if !bench.is_empty() && (modules || tests) {
+        r.reject("a research entry in bench/ goes in a pull request of its own, without modules or tests");
+    }
+    Some((tests, bench))
+}
+
+/// Research entries belong to a goal with a benchmark harness: r1_<name>. Keep in sync with game/build.rs.
+fn valid_bench_name(n: &str) -> bool {
+    valid_test_name(n) && BENCH_GOALS.iter().any(|g| n.strip_prefix(g).is_some_and(|rest| rest.starts_with('_')))
+}
+
+fn valid_bench_path(p: &str) -> bool {
+    valid_source_path(p, "bench", valid_bench_name)
+}
+
+/// Runs the research benchmarks in a separate bench.wasm. `only` is the entries a pull request
+/// touches (problems reject it); `None` means every entry, on main, where problems are only noted.
+fn benchmarks(r: &mut Report, target: &Path, only: Option<&[String]>) {
+    if only.is_some_and(|o| o.is_empty()) {
+        return;
+    }
+    let strict = only.is_some();
+    let problem = |r: &mut Report, key: String, why: String| {
+        if strict { r.reject(why) } else { r.metrics.insert(key, why); }
+    };
+    r.stage = "bench";
+    let dir = target.join("bench");
+    let mut build = Command::new("cargo");
+    build.env("CARGO_TARGET_DIR", &dir).env("CARGO_TERM_COLOR", "never");
+    build.args(["build", "--release", "--locked", "--offline", "--target", "wasm32-unknown-unknown", "-p", "engine", "--features", "bench"]);
+    match run_with_timeout(&mut build, BUILD_TIMEOUT) {
+        Ok(o) if o.success && !o.timed_out => {}
+        Ok(o) => return problem(r, "why bench".into(), format!("bench build failed:\n{}", tail(&o.stderr, 40, 4000))),
+        Err(e) => return r.fault(format!("cannot run cargo: {e}")),
+    }
+    let wasm = dir.join("wasm32-unknown-unknown/release/engine.wasm");
+    let Ok(bytes) = fs::read(&wasm) else { return r.fault("bench build produced no engine.wasm") };
+    match wasm_interface(&bytes) {
+        Err(e) => return r.fault(format!("bench.wasm does not parse: {e}")),
+        Ok((imports, exports, max_pages)) => {
+            if !imports.is_empty() || max_pages.is_none_or(|p| p > MAX_MEMORY_PAGES) {
+                return r.reject(format!("bench.wasm must import nothing and cap its memory (imports {imports:?}, pages {max_pages:?})"));
+            }
+            if let Some(e) = exports.iter().find(|e| !ENGINE_EXPORTS.contains(&e.as_str()) && !BENCH_EXPORTS.contains(&e.as_str())) {
+                return r.reject(format!("bench.wasm exports unexpected symbol {e:?}"));
+            }
+        }
+    }
+    let mut node = Command::new("node");
+    node.arg("checker/bench.mjs").arg(&wasm).arg(only.map_or("*".to_string(), |o| o.join(","))).arg(MAX_BENCH_MS.to_string());
+    let o = match run_with_timeout(&mut node, BENCH_TIMEOUT) {
+        Err(e) => return r.fault(format!("cannot run node: {e}")),
+        Ok(o) => o,
+    };
+    if o.timed_out {
+        return problem(r, "why bench".into(), format!("benchmarks took longer than {BENCH_TIMEOUT} s (an endless loop?)"));
+    }
+    let mut finished = false;
+    for line in o.stdout.lines() {
+        if let Some(rest) = line.strip_prefix("BENCH ") {
+            if let Some((name, score)) = rest.split_once(' ') {
+                r.metrics.insert(format!("bench_{name}"), score.to_string());
+            }
+        } else if let Some(rest) = line.strip_prefix("FAIL ") {
+            let name = rest.split(':').next().unwrap_or("").to_string();
+            problem(r, format!("why {name}"), format!("benchmark {rest}"));
+        } else if let Some(rest) = line.strip_prefix("METRIC bench_ms ") {
+            r.metrics.insert("bench_ms".into(), rest.to_string());
+        } else if line == "DONE" {
+            finished = true;
+        }
+    }
+    if !finished {
+        problem(r, "why bench".into(), format!("benchmarks crashed:\n{}", tail(&format!("{}{}", o.stdout, o.stderr), 30, 4000)));
+    }
 }
 
 fn scan_tree(r: &mut Report, root: &Path, label: &str) {
@@ -432,10 +533,14 @@ fn scan_tree(r: &mut Report, root: &Path, label: &str) {
     let mut total = 0;
     let entries = match fs::read_dir(root) {
         Ok(e) => e,
-        Err(_) if label == "tests" => return, // no swarm tests yet
+        Err(_) if label == "tests" || label == "bench" => return, // none yet
         Err(e) => return r.fault(format!("cannot read {label}/: {e}")),
     };
-    let top: fn(&str) -> bool = if label == "tests" { valid_test_name } else { valid_name };
+    let top: fn(&str) -> bool = match label {
+        "tests" => valid_test_name,
+        "bench" => valid_bench_name,
+        _ => valid_name,
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().into_owned();
@@ -482,7 +587,7 @@ fn walk(r: &mut Report, dir: &Path, shown: &str, depth: usize, files: &mut usize
             } else {
                 walk(r, &entry.path(), &shown, depth + 1, files, total);
             }
-        } else if !meta.is_file() || !(valid_module_path(&shown) || valid_test_path(&shown)) {
+        } else if !meta.is_file() || !(valid_module_path(&shown) || valid_test_path(&shown) || valid_bench_path(&shown)) {
             r.reject(format!("{shown}: only .rs files named [a-z][a-z0-9_]*.rs belong here"));
         } else {
             *files += 1;
@@ -716,9 +821,24 @@ mod tests {
     fn changed_rules() {
         let new = || Report { verdict: Verdict::Accepted, stage: "t", reasons: vec![], metrics: BTreeMap::new() };
         let mut r = new();
-        assert!(check_changed(&mut r, "A\ttests/c9_camera/mod.rs\n") && r.verdict == Verdict::Accepted);
+        assert_eq!(check_changed(&mut r, "A\ttests/c9_camera/mod.rs\n"), Some((true, vec![])));
+        assert_eq!(r.verdict, Verdict::Accepted);
         let mut r = new();
-        assert!(!check_changed(&mut r, "M\tmodules/car/mod.rs\nD\tmodules/old/mod.rs\n") && r.verdict == Verdict::Accepted);
+        assert_eq!(check_changed(&mut r, "M\tmodules/car/mod.rs\nD\tmodules/old/mod.rs\n"), Some((false, vec![])));
+        assert_eq!(r.verdict, Verdict::Accepted);
+        let mut r = new();
+        let entries = check_changed(&mut r, "A\tbench/r1_probes/mod.rs\nM\tbench/r1_probes/grid.rs\nM\tbench/r1_rays/mod.rs\n");
+        assert_eq!(entries, Some((false, vec!["r1_probes".to_string(), "r1_rays".to_string()])));
+        assert_eq!(r.verdict, Verdict::Accepted, "adding and improving research entries");
+        let mut r = new();
+        check_changed(&mut r, "D\tbench/r1_rays/mod.rs\n");
+        assert_eq!(r.verdict, Verdict::Rejected, "removing a research entry");
+        let mut r = new();
+        check_changed(&mut r, "A\tbench/r1_rays/mod.rs\nM\tmodules/car/mod.rs\n");
+        assert_eq!(r.verdict, Verdict::Rejected, "mixing a research entry and code");
+        let mut r = new();
+        check_changed(&mut r, "A\tbench/r2_crowd/mod.rs\n");
+        assert_eq!(r.verdict, Verdict::Rejected, "a research goal without a harness");
         let mut r = new();
         check_changed(&mut r, "M\ttests/c9_camera/mod.rs\n");
         assert_eq!(r.verdict, Verdict::Rejected, "editing a test");

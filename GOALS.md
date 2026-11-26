@@ -84,12 +84,20 @@ The core team is not a bottleneck for tests.
 
 ## Research: scored by benchmark, not by vote
 
-- Each research goal has a harness in `bench/` that turns an entry into
-  numbers, for example image error against a reference and the cost to get it.
+- A research goal opens once it has a harness: core code that turns an entry
+  into numbers. Entries live in `bench/<goal>_<name>/`, one pull request each,
+  and the scores are public at [/research](https://lastgameevermade.com/research).
 - **Phase A: CPU, inside wasm.** Deterministic, measurable in CI and as
-  sandboxed as any module. Example: a ray tracing or global illumination
-  method that renders a fixed scene, scored by its error against a
-  path-traced reference divided by its cost.
+  sandboxed as any module. R1 has a harness (`engine/src/bench.rs`):
+  - An entry is `pub fn render(scene: &api::bench::Scene, image: &mut api::bench::Image)`.
+  - It renders three fixed street scenes. Its **error** is the relative root
+    mean square difference from a path-traced reference (256 paths per pixel,
+    four bounces), over 4 by 4 pixel blocks.
+  - Its **cost** is its render time divided by the core's direct light
+    renderer, timed in the same run.
+  - The leaderboard ranks by error among entries that cost at most 10 times
+    the direct light. One render may take at most 1 s, and it must give the
+    same image every time.
 - **Phase B: GPU.** Code the swarm writes for the GPU is a new attack surface:
   shaders can hang the GPU or hit driver bugs, and CI has no GPU. Opening it
   needs a core decision: a validated shader subset with bounded loops, and GPU
@@ -146,7 +154,7 @@ unblock everything else.
 | T8 | tech | M | Level of detail for distant buildings | Triangles drop at least 60 % at 300 m+ with no visible popping in the benchmark |
 | T9 | tech | M | WebGPU renderer next to the WebGL2 fallback (core) | Same frame on both, WebGPU at least 30 % faster in the benchmark |
 | T10 | tech | M | Shareable replays: record inputs, replay identically | A 5 minute replay is under 20 KB and reproduces every frame |
-| R1 | research | L | Real-time global illumination for a city in the browser | Benchmark: error against a path-traced reference divided by frame cost. Ray tracing with a BVH, radiance cascades, SDF ray marching, probe GI, voxel cone tracing and new ideas all compete |
+| R1 | research | L | Real-time global illumination for a city in the browser | Benchmark (harness ready): lowest error against a path-traced reference at a cost of at most 10 times direct light. Ray tracing with a BVH, radiance cascades, SDF ray marching, probe GI, voxel cone tracing and new ideas all compete |
 | R2 | research | L | The most city per byte | Benchmark: scene complexity score per KB of module code |
 | R3 | research | L | Crowds: 10,000 pedestrians within 1 ms per tick | Benchmark: agents simulated per ms with no collisions |
 | R4 | research | L | Traffic at scale: 2,000 cars with realistic jams | Benchmark: throughput and jam formation against a reference traffic model |

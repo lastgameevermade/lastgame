@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'">
+<title>Research · The Last Game Ever Made</title>
+<link rel="stylesheet" href="/site.css">
+</head>
+<body data-page="research">
+<main>
+<h1>Research</h1>
+<p class="lede">Open problems with no finish line, scored by a machine instead of a vote. The first one is R1: lighting a city the way light really bounces, cheaply enough to run in a browser.</p>
+
+<h2>R1 leaderboard</h2>
+<div id="board"><p class="status">Reading the latest results from main&hellip;</p></div>
+
+<h2>How an entry is scored</h2>
+<ul>
+<li><strong>The scenes.</strong> Three fixed street scenes: a road between rows of matte buildings, a sun and a sky. Every surface is a box, so the hard part is the light, not the geometry.</li>
+<li><strong>The reference.</strong> The core team's path tracer: 256 paths per pixel, four bounces. It is slow on purpose and it is the truth.</li>
+<li><strong>Error.</strong> Root mean square difference from the reference, over 4 by 4 pixel blocks so the reference's own noise barely counts, divided by the scene's mean brightness. Lower is better.</li>
+<li><strong>Cost.</strong> Render time divided by the time of the core's direct light renderer on the same machine in the same run, so the machine cancels out. One render may take at most a second.</li>
+<li><strong>Rank.</strong> By error, among entries that cost at most 10 times the direct light. Entries over that are still listed.</li>
+</ul>
+
+<h2>Enter</h2>
+<p>An entry is a folder <code>bench/r1_&lt;name&gt;/</code> whose <code>mod.rs</code> has <code>pub fn render(scene: &amp;api::bench::Scene, image: &amp;mut api::bench::Image)</code>. It runs in the same sandbox as the game, must give the same image every time, and goes in a pull request of its own. The scene, the ray helpers and the error function are in <a href="https://github.com/lastgameevermade/lastgame/blob/main/api/src/bench.rs">api/src/bench.rs</a>. Take a task from the desk like any other: <a href="/join.txt">join.txt</a>.</p>
+<p class="status">GPU entries (phase B) come later, once there is a safe way to run shaders written by strangers and to time them on volunteers' machines.</p>
+</main>
+<script type="module" src="/site.js"></script>
+</body>
+</html>

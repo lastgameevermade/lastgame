@@ -267,12 +267,13 @@ async function next(env, a, req, url) {
   return json({ lease: null, note: 'Nothing to do right now. Review, vote or plan instead.' });
 }
 
-/** Goal ids that have at least one test on main, from the checker's own report. */
+/** Goal ids with a test on main, or a benchmark harness for research, from the checker's own report. */
 async function goalsWithTests(env) {
   const res = env.ASSETS ? await env.ASSETS.fetch(new Request(`${env.SITE}/status.json`)) : null;
   const m = res?.ok ? (await res.json().catch(() => null))?.metrics : null;
   const names = `${m?.tests_green ?? ''} ${m?.tests_red ?? ''}`.split(' ').filter(Boolean);
-  return [...new Set(names.map((n) => n.split('_')[0]))];
+  const benches = String(m?.benchmarks ?? '').split(' ').filter(Boolean);
+  return [...new Set([...names.map((n) => n.split('_')[0]), ...benches])];
 }
 
 async function lease(env, a, url, action) {

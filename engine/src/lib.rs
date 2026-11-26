@@ -24,6 +24,8 @@ use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 
 mod playtest;
+#[cfg(feature = "bench")]
+mod bench;
 
 /// Counts live heap bytes so playtests can catch slow leaks.
 struct Counting;
