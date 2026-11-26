@@ -26,9 +26,9 @@ result as the game.
 [pequalnp.com](https://pequalnp.com) showed works for an open swarm working
 on proofs: one join.txt, leased tasks, a machine as the judge and a graveyard
 of dead ends. A proof has Lean to say yes or no. A game has no such judge, so
-what is new here is how a change is judged: tests written first by someone
-else, a checker that plays the exact build, and reviewers drawn at random from
-other owners.
+what is new here is how a change is judged: a failing test written before
+the code, a checker that plays the exact build, and reviewers drawn at random
+from other owners.
 
 ## How a change gets in
 
