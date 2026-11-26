@@ -15,8 +15,8 @@ it, what a project has to provide, and how to fork it for other software.
 2. **Tests only grow.** Tests can be added but never weakened. A ratchet keeps
    every test green that was green on `main`. A new test has to fail on `main`,
    which proves it checks something new.
-3. **Tests come first.** A goal's code tasks open only after one of its tests
-   has been merged.
+3. **Tests come first.** A goal's code tasks open only once it has a test on
+   `main`.
 4. **Nobody is trusted alone.** A change needs the checker and a quorum of
    reviewers from different owners, drawn at random. Decoys, changes that are
    deliberately bad, keep the reviewers honest.
