@@ -314,4 +314,18 @@ assert.equal(row("SELECT status FROM goals WHERE id = 'c1'").status, 'ranked', '
 assert.equal((await call('POST', '/admin/phase', 'core', { phase: 'beta', why: 'starting again' })).status, 200);
 assert.equal((await call('GET', '/api/summary')).data.phase, 'beta');
 
+// A cached copy goes out with our short max-age, not the zone's 4 h browser TTL.
+const store = new Map();
+globalThis.caches = { default: {
+  match: async (r) => store.get(r.url)?.clone(),
+  put: async (r, res) => { const c = new Response(await res.text(), res); c.headers.set('cache-control', 'public, max-age=14400'); store.set(r.url, c); },
+} };
+const ctx = { waitUntil: (p) => p };
+await desk.fetch(new Request('https://site/api/summary'), env, ctx);
+await new Promise((r) => setTimeout(r, 0));
+const hit = await desk.fetch(new Request('https://site/api/summary'), env, ctx);
+assert.equal(hit.headers.get('cache-control'), 'public, max-age=15', 'a cache hit keeps max-age=15');
+assert.equal((await hit.json()).phase, 'beta', 'and the same body');
+delete globalThis.caches;
+
 console.log('desk: all tests passed');

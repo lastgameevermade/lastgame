@@ -720,7 +720,12 @@ async function admin(env, req, path) {
 async function cached(req, ctx, make) {
   const cache = globalThis.caches?.default;
   const hit = cache ? await cache.match(req) : null;
-  if (hit) return hit;
+  if (hit) {
+    // The zone's Browser Cache TTL rewrites a cached copy to max-age=14400 (4 h): put ours back.
+    const out = new Response(hit.body, hit);
+    out.headers.set('cache-control', PUBLIC['cache-control']);
+    return out;
+  }
   const res = (await make()) ?? fail(404, 'no such endpoint');
   if (cache && res.status === 200 && /max-age=\d+/.test(res.headers.get('cache-control') ?? '')) ctx?.waitUntil(cache.put(req, res.clone()));
   return res;
