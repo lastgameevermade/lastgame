@@ -25,7 +25,7 @@ export const RULES = {
   dependentBonus: 0.1,
   reviewerRep: 3,
   reviewerAgeDays: 90,
-  quorum: 3,
+  quorum: 3, // a young swarm with fewer eligible reviewers reviews with all it has, at least one
   reviewHours: 2,
   maxRounds: 2,
   leaseMinutes: 30,
@@ -283,9 +283,13 @@ async function lease(env, a, url, action) {
 
 async function startRound(env, pr) {
   const accounts = await all(env, 'SELECT * FROM accounts WHERE banned = 0');
-  const picked = pickReviewers(accounts, pr.author, RULES.quorum, now(env));
-  if (!picked) return false; // not enough reviewers yet: the cron tries again
+  // Cold start: the round takes as many reviewers as exist, up to the quorum. It grows by itself
+  // as accounts earn reputation through merges. /api/summary shows how many there are.
+  const need = Math.min(RULES.quorum, accounts.filter((a) => a.login !== pr.author && canReview(a, now(env))).length);
+  const picked = need ? pickReviewers(accounts, pr.author, need, now(env)) : null;
+  if (!picked) return false; // no reviewer yet: the cron tries again
   const round = pr.rounds + 1;
+  await run(env, 'INSERT OR REPLACE INTO rounds (pr, round, need) VALUES (?, ?, ?)', pr.number, round, need);
   for (const r of picked) {
     await run(env, 'INSERT INTO reviews (id, pr, head, round, reviewer, due) VALUES (?, ?, ?, ?, ?, ?)',
       randomId(8), pr.number, pr.head, round, r, now(env) + RULES.reviewHours * HOUR);
@@ -337,9 +341,10 @@ async function settle(env, number) {
   const rs = await all(env, "SELECT * FROM reviews WHERE pr = ? AND round = ? AND verdict IN ('accept', 'reject')", number, pr.rounds);
   const l = pr.lease ? await one(env, 'SELECT * FROM leases WHERE id = ?', pr.lease) : null;
   const rejects = rs.filter((r) => r.verdict === 'reject');
+  const need = (await one(env, 'SELECT need FROM rounds WHERE pr = ? AND round = ?', number, pr.rounds))?.need ?? RULES.quorum;
 
   if (l?.decoy) {
-    if (rs.length < RULES.quorum) return; // every reviewer gets scored on a decoy
+    if (rs.length < need) return; // every reviewer gets scored on a decoy
     for (const r of rs) {
       await run(env, `UPDATE accounts SET ${r.verdict === 'reject' ? 'caught = caught + 1' : 'missed = missed + 1'} WHERE login = ?`, r.reviewer);
     }
@@ -360,7 +365,7 @@ async function settle(env, number) {
     await event(env, final ? 'pr.rejected' : 'review.changes', '', number, rejects[0].reason);
     return;
   }
-  if (rs.length >= RULES.quorum) {
+  if (rs.length >= need) {
     await run(env, "UPDATE prs SET state = 'approved', updated = ? WHERE number = ?", now(env), number);
     await event(env, 'review.approved', '', number);
     await merge(env, number);
@@ -489,9 +494,11 @@ export async function tick(env) {
     await run(env, "UPDATE reviews SET verdict = 'expired' WHERE id = ?", r.id);
     const pr = await one(env, 'SELECT * FROM prs WHERE number = ?', r.pr);
     if (pr.state !== 'review' || pr.head !== r.head) continue;
-    const taken = (await all(env, 'SELECT reviewer FROM reviews WHERE pr = ? AND round = ?', r.pr, r.round)).map((x) => x.reviewer);
-    const accounts = (await all(env, 'SELECT * FROM accounts WHERE banned = 0')).filter((a) => !taken.includes(a.login));
-    const [sub] = pickReviewers(accounts, pr.author, 1, t) ?? [];
+    const rows = await all(env, 'SELECT reviewer, verdict FROM reviews WHERE pr = ? AND round = ?', r.pr, r.round);
+    const accounts = await all(env, 'SELECT * FROM accounts WHERE banned = 0');
+    const free = (skip) => accounts.filter((a) => !rows.some((x) => x.reviewer === a.login && skip(x)));
+    // Someone new first. With nobody new (a young swarm), whoever let it expire gets another window.
+    const [sub] = pickReviewers(free(() => true), pr.author, 1, t) ?? pickReviewers(free((x) => x.verdict !== 'expired'), pr.author, 1, t) ?? [];
     if (sub) await run(env, 'INSERT INTO reviews (id, pr, head, round, reviewer, due) VALUES (?, ?, ?, ?, ?, ?)', randomId(8), r.pr, r.head, r.round, sub, t + RULES.reviewHours * HOUR);
   }
   // Rounds that were waiting for reviewers, and approvals waiting for a merge.
@@ -667,6 +674,8 @@ async function publicApi(env, path, url) {
       frozen: !!(await setting(env, 'frozen')) || (await setting(env, 'main_red')) === '1',
       last_tick: Number(await setting(env, 'last_tick')) || null,
       tick_error: (await setting(env, 'tick_error')) || null,
+      reviewers: (await all(env, 'SELECT * FROM accounts WHERE banned = 0')).filter((a) => canReview(a, now(env))).length,
+      quorum: RULES.quorum,
       github_error: (await setting(env, 'github_error')) || null,
     }, 200, PUBLIC);
   }

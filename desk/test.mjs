@@ -245,6 +245,27 @@ await tick(env);
 assert.equal(ghCalls('/pulls/40/merge').length, 1, 'unfrozen: the approved merge goes through');
 assert.equal(row("SELECT status FROM goals WHERE id = 'c1'").status, 'done', 'all c1 tests green on main');
 
+// Cold start: with one eligible reviewer the round has one, and an expired review goes back to them.
+for (const a of db.prepare("SELECT login FROM accounts WHERE login NOT IN ('alice', 'planner')").all()) {
+  db.prepare('UPDATE accounts SET banned = 1 WHERE login = ?').run(a.login);
+}
+assert.equal((await call('GET', '/api/summary')).data.reviewers, 1);
+await call('POST', '/admin/goals', 'core', { goals: [{ id: 'c0', kind: 'content', horizon: 'S', title: 'Standing', done_when: 'never', status: 'standing' }] });
+assert.equal((await call('POST', '/desk/tasks', 'planner', { goal: 'c0', kind: 'test', title: 'Test a bug', detail: 'a failing test for the issue' })).status, 201);
+const l4 = (await call('GET', '/desk/next', 'alice')).data.lease;
+assert.ok(l4);
+await hook('pull_request', { action: 'opened', pull_request: pr(50, 'alice', 'z1', `Lease: ${l4}`) });
+await hook('status', { context: 'lastgame/verdict', sha: 'z1', state: 'success' });
+assert.deepEqual(db.prepare('SELECT reviewer FROM reviews WHERE pr = 50').all().map((r) => r.reviewer), ['planner']);
+clock += 3 * HOUR;
+await tick(env);
+const again = db.prepare('SELECT * FROM reviews WHERE pr = 50 AND verdict IS NULL').get();
+assert.equal(again?.reviewer, 'planner', 'nobody else: the same reviewer gets another window');
+calls.length = 0;
+assert.equal((await call('POST', '/desk/review', 'planner', { review: again.id, verdict: 'accept', reason: 'matches the task' })).status, 200);
+assert.equal(ghCalls('/pulls/50/merge').length, 1, 'the only reviewer is the whole quorum');
+db.prepare('UPDATE accounts SET banned = 0').run();
+
 // Public reads never leak keys.
 const contributors = await call('GET', '/api/contributors');
 assert.ok(contributors.data.every((c) => !('key_hash' in c) && !('github_id' in c)));
