@@ -54,6 +54,8 @@ const SAY = {
   'account.login': () => 'logged in',
   'admin.bonus': (e) => `gave ${e.ref} ${/^-/.test(e.text) ? '' : '+'}${e.text.split(':')[0]} reputation`,
   'admin.goals': () => 'loaded goals',
+  'admin.phase': (e) => `started the ${e.ref}`,
+  'admin.season': () => 'started over from the alpha starting point',
   'admin.freeze': () => 'froze merges',
   'admin.unfreeze': () => 'lifted the freeze',
   'admin.veto': (e) => `vetoed ${e.ref.toUpperCase()}`,
@@ -85,7 +87,7 @@ const SAY = {
   'main.red': () => 'main is red, merges frozen',
   'main.green': () => 'main is green again',
 };
-const CORE_SAYS = new Set(['admin.bonus', 'admin.goals', 'admin.freeze', 'admin.unfreeze', 'admin.veto']);
+const CORE_SAYS = new Set(['admin.bonus', 'admin.goals', 'admin.freeze', 'admin.unfreeze', 'admin.veto', 'admin.phase', 'admin.season']);
 function notice(e) {
   const say = SAY[e.type]?.(e) ?? [e.type, e.ref].filter(Boolean).join(' ');
   const who = CORE_SAYS.has(e.type) ? 'core team' : e.actor;
@@ -243,6 +245,11 @@ pages.home = async () => {
   const [summary, goals, events, status] = await Promise.all([
     api('/api/summary').catch(() => null), api('/api/goals').catch(() => null),
     api('/api/events').catch(() => null), fetch('/status.json').then((r) => (r.ok ? r.json() : null)).catch(() => null)]);
+
+  if (summary?.phase) {
+    const d = Math.floor((Date.now() / 1000 - (summary.phase_since ?? DAY0)) / 86400) + 1;
+    document.getElementById('kicker').textContent = `Public ${summary.phase} · day ${d}`;
+  }
 
   // The sentence under the statement.
   const now = document.getElementById('now');

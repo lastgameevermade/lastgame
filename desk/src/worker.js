@@ -679,6 +679,25 @@ async function admin(env, req, path) {
     await run(env, 'INSERT INTO leases (id, task, owner, expires, decoy) VALUES (?, ?, ?, ?, ?)', id, b.task, String(b.login).toLowerCase(), now(env) + DAY, note);
     return json({ lease: id });
   }
+  if (path === '/admin/phase') {
+    // alpha, beta or live, shown on the site. A phase's day count starts now.
+    if (!['alpha', 'beta', 'live'].includes(b.phase) || !why) return fail(400, 'need phase alpha|beta|live and why');
+    await setting(env, 'phase', b.phase);
+    await setting(env, 'phase_since', String(now(env)));
+    await event(env, 'admin.phase', 'core', b.phase, why);
+    return json({ phase: b.phase });
+  }
+  if (path === '/admin/season') {
+    // The alpha's way out (CONSTITUTION.md), after the content rollback is merged: votes, tasks,
+    // leases, pull request records, reviews and every earned point go. Accounts and their keys
+    // stay, the event record stays, and the next tick seeds the goals again from goals.json.
+    if (b.confirm !== 'start over' || !why) return fail(400, 'need confirm "start over" and why');
+    for (const t of ['votes', 'upvotes', 'reviews', 'rounds', 'verdicts', 'prs', 'leases', 'tasks', 'goals']) await run(env, `DELETE FROM ${t}`);
+    await run(env, 'UPDATE accounts SET accepted = 0, caught = 0, missed = 0, overturned = 0, bonus = 0');
+    await run(env, "DELETE FROM settings WHERE key LIKE 'recheck:%'");
+    await event(env, 'admin.season', 'core', '', why);
+    return json({ ok: true, next: 'the next tick seeds the goals; give the first reviewers their bonus again' });
+  }
   if (path === '/admin/goals') {
     for (const g of Array.isArray(b.goals) ? b.goals : []) {
       await run(env, 'INSERT OR IGNORE INTO goals (id, kind, horizon, title, done_when, depends, status, proposer, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -718,6 +737,8 @@ async function publicApi(env, path, url) {
       last_tick: Number(await setting(env, 'last_tick')) || null,
       tick_error: (await setting(env, 'tick_error')) || null,
       reviewers: (await all(env, 'SELECT * FROM accounts WHERE banned = 0')).filter((a) => canReview(a, now(env))).length,
+      phase: (await setting(env, 'phase')) || null,
+      phase_since: Number(await setting(env, 'phase_since')) || null,
       quorum: RULES.quorum,
       github_error: (await setting(env, 'github_error')) || null,
     }, 200, PUBLIC);

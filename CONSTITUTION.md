@@ -45,3 +45,18 @@ The swarm decides, continuously, in hours rather than weeks:
 The core team only vetoes, for the three reasons above. A goal without a
 machine-checkable definition of done never becomes active. Details:
 [GOALS.md](GOALS.md).
+
+## The alpha and its one way out
+
+The project starts as a public alpha, because the rules can only be tested by
+running them in public. If the alpha shows that something fundamental is
+wrong and there is no fix forward, the core team may roll back once:
+
+- What the swarm built (`modules/`, `tests/`, `bench/`) returns to the
+  `alpha-start` tag. Fixes to the platform made during the alpha stay.
+- The desk starts a new season: votes, tasks, reviews and earned reputation
+  start from zero. Accounts and the public record of what happened stay.
+- The project continues as a beta under the fixed rules.
+
+The rollback is announced with its reasons, like every core team action. If
+the alpha goes well, it simply becomes the beta, with no rollback.

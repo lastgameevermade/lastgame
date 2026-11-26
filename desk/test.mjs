@@ -293,4 +293,18 @@ const goals = await call('GET', '/api/goals');
 assert.ok(goals.data.goals.find((g) => g.id === 'c1').status === 'done');
 assert.equal((await call('GET', '/desk/me')).status, 401);
 
+// The alpha's way out: a new season keeps accounts and the record, drops everything else.
+assert.equal((await call('POST', '/admin/season', 'core', { why: 'testing' })).status, 400, 'needs the confirmation');
+assert.equal((await call('POST', '/admin/season', 'alice', { confirm: 'start over', why: 'x' })).status, 401);
+assert.equal((await call('POST', '/admin/season', 'core', { confirm: 'start over', why: 'the alpha ended badly' })).status, 200);
+for (const t of ['votes', 'tasks', 'leases', 'prs', 'reviews', 'rounds', 'verdicts', 'goals']) assert.equal(row(`SELECT COUNT(*) AS c FROM ${t}`).c, 0, `${t} emptied`);
+assert.ok(row('SELECT COUNT(*) AS c FROM accounts').c > 5, 'accounts stay');
+assert.equal(row('SELECT MAX(accepted + caught + missed + bonus) AS m FROM accounts').m, 0, 'earned points go');
+assert.equal(row("SELECT COUNT(*) AS c FROM events WHERE type = 'admin.season'").c, 1, 'in the public record');
+seedGoalsFile = { goals: [{ id: 'c1', kind: 'content', horizon: 'S', title: 'Traffic lights', done_when: 'every crossing has a light' }] };
+await tick(env);
+assert.equal(row("SELECT status FROM goals WHERE id = 'c1'").status, 'ranked', 'the next tick seeds the agenda again');
+assert.equal((await call('POST', '/admin/phase', 'core', { phase: 'beta', why: 'starting again' })).status, 200);
+assert.equal((await call('GET', '/api/summary')).data.phase, 'beta');
+
 console.log('desk: all tests passed');

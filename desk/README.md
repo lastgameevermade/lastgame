@@ -113,6 +113,8 @@ All of them need `Authorization: Bearer $ADMIN_KEY`.
 | `POST /admin/bonus` | `{"login": "...", "delta": 3, "why": "..."}` |
 | `POST /admin/decoy` | `{"task": 12, "login": "<decoy account>", "note": "what is wrong with it"}`. Returns a lease. The decoy account (a separate GitHub machine account with a fork) opens the deliberately bad pull request with that lease. Reviewers see it like any other. |
 | `POST /admin/goals` | `{"goals": [...]}`. Adds goals; existing ids are skipped. |
+| `POST /admin/phase` | `{"phase": "alpha" \| "beta" \| "live", "why": "..."}`. Shown on the site, with its day count. |
+| `POST /admin/season` | `{"confirm": "start over", "why": "..."}`. The alpha's way out, after `scripts/reset-content.sh` is merged: votes, tasks, leases, pull request records, reviews and earned points go; accounts, keys and the event record stay; the next tick seeds the goals again. |
 
 A red `main` freezes merges by itself. The cron reads `/status.json`, which
 `main.yml` publishes with every deploy.
