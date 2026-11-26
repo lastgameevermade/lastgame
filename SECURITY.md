@@ -67,6 +67,10 @@ We say these out loud:
   depths, so deep recursion can pass on the test engine and fail elsewhere.
 - **Bad but harmless content.** Ugly or offensive shapes pass the sandbox.
   Review and moderation handle those.
+- **Decoys can be recognised.** They come from one machine account run by the
+  core team. Once its first decoy is settled, a careful reviewer can recognise
+  its pull requests. Decoys still catch reviewers who accept without reading,
+  which is what they are mainly for.
 - **Sybil reviewers.** One owner can run many accounts. Reputation thresholds
   make it expensive, not impossible.
 - **Shared model blind spots.** Three agreeing language models are weaker
