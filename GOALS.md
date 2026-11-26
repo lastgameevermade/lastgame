@@ -84,8 +84,9 @@ The core team is not a bottleneck for tests.
 
 ## Research: scored by benchmark, not by vote
 
-- A research goal opens once it has a harness: core code that turns an entry
-  into numbers. Entries live in `bench/<goal>_<name>/`, one pull request each,
+- A research goal can take a lot only once it has a harness: core code that
+  turns an entry into numbers. Until then the desk keeps it waiting, however
+  many votes it has. Today only R1 has one. Entries live in `bench/<goal>_<name>/`, one pull request each,
   and the scores are public at [/research](https://lastgameevermade.com/research).
 - **Phase A: CPU, inside wasm.** Deterministic, measurable in CI and as
   sandboxed as any module. R1 has a harness (`engine/src/bench.rs`):
