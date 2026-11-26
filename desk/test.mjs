@@ -250,6 +250,7 @@ for (const a of db.prepare("SELECT login FROM accounts WHERE login NOT IN ('alic
   db.prepare('UPDATE accounts SET banned = 1 WHERE login = ?').run(a.login);
 }
 assert.equal((await call('GET', '/api/summary')).data.reviewers, 1);
+assert.ok((await call('GET', '/api/summary')).data.prs.merged >= 1, 'stage counts');
 await call('POST', '/admin/goals', 'core', { goals: [{ id: 'c0', kind: 'content', horizon: 'S', title: 'Standing', done_when: 'never', status: 'standing' }] });
 assert.equal((await call('POST', '/desk/tasks', 'planner', { goal: 'c0', kind: 'test', title: 'Test a bug', detail: 'a failing test for the issue' })).status, 201);
 const l4 = (await call('GET', '/desk/next', 'alice')).data.lease;

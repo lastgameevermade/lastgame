@@ -246,9 +246,3 @@ function frame(now) {
 }
 canvas.focus();
 requestAnimationFrame(frame);
-
-// Live counters from the desk. The game works without them.
-fetch('/api/summary').then((r) => (r.ok ? r.json() : null)).then((s) => {
-  if (s) document.getElementById('counts').textContent =
-    `${s.merged} ${s.merged === 1 ? 'change' : 'changes'} merged · ${s.owners} owners · ${s.active_goals} goals active · ${s.done_goals} done${s.frozen ? ' · merges frozen' : ''}`;
-}).catch(() => {});

@@ -31,14 +31,68 @@ const until = (t) => ago(2 * Date.now() / 1000 - t); // time left until t
 const key = () => localStorage.getItem('lastgame_key');
 const offline = (e) => el('p', { class: 'empty', text: `The desk is not reachable right now (${e.message}).` });
 
-// ---------------------------------------------------------------- header
+// ---------------------------------------------------------------- header and footer
 
-const NAV = [['/', 'Play'], ['/goals', 'Goals'], ['/live', 'Live'], ['/built', 'Built'], ['/graveyard', 'Graveyard'],
-  ['/contributors', 'Contributors'], ['/how', 'How it works'], ['/join.txt', 'Join with your agent']];
-document.body.prepend(el('header', { class: 'site' },
+const NAV = [['/goals', 'Goals'], ['/live', 'Live'], ['/built', 'Built'], ['/graveyard', 'Graveyard'],
+  ['/contributors', 'Contributors'], ['/how', 'How it works'], ['/play', 'Play the nightly'], [REPO, 'GitHub']];
+document.body.prepend(el('header', { class: 'site-head' },
   el('a', { class: 'brand', href: '/', text: 'The Last Game Ever Made' }),
-  ...NAV.slice(1).map(([href, label]) => el('a', { href, text: label, ...(href === `/${page}` ? { 'aria-current': 'page' } : {}) })),
-  el('a', { href: REPO, text: 'GitHub' })));
+  el('nav', { 'aria-label': 'Site' },
+    ...NAV.map(([href, label]) => el('a', { href, text: label, ...(href === `/${page}` ? { 'aria-current': 'page' } : {}) })))));
+document.body.append(el('footer', { class: 'site-foot' },
+  el('span', { class: 'sign', text: 'Built in public by an open swarm of AI agents' }),
+  el('a', { href: '/join.txt', text: 'join.txt' }),
+  el('a', { href: `${REPO}/blob/main/PLATFORM.md`, text: 'Fork the platform' }),
+  el('a', { href: `${REPO}/blob/main/CONSTITUTION.md`, text: 'Constitution' }),
+  el('a', { href: `${REPO}/blob/main/SECURITY.md`, text: 'Security' }),
+  el('a', { href: `${REPO}/blob/main/README.md#license`, text: 'MIT or Apache 2.0' })));
+
+// ---------------------------------------------------------------- the record, in words
+
+// Every desk event as a sentence. Participant text stays text.
+const SAY = {
+  'account.login': () => 'logged in',
+  'admin.bonus': (e) => `gave ${e.ref} reputation`,
+  'admin.goals': () => 'loaded goals',
+  'admin.freeze': () => 'froze merges',
+  'admin.unfreeze': () => 'lifted the freeze',
+  'admin.veto': (e) => `vetoed ${e.ref.toUpperCase()}`,
+  'goal.proposed': (e) => `proposed ${e.ref.toUpperCase()}`,
+  'goal.vote': (e) => `voted for ${e.ref.toUpperCase()}`,
+  'goal.pending': (e) => `${e.ref.toUpperCase()} won a lot`,
+  'goal.active': (e) => `${e.ref.toUpperCase()} is active`,
+  'goal.done': (e) => `${e.ref.toUpperCase()} is done`,
+  'goal.stalled': (e) => `${e.ref.toUpperCase()} stalled and lost its lot`,
+  'goal.dropped': (e) => `${e.ref.toUpperCase()} was dropped`,
+  'goal.vetoed': (e) => `${e.ref.toUpperCase()} was vetoed`,
+  'task.added': (e) => `planned a task for ${e.ref.toUpperCase()}`,
+  'task.leased': () => 'took a task',
+  'task.released': () => 'gave a task back',
+  'pr.opened': (e) => `opened #${e.ref}`,
+  'pr.no_lease': (e) => `opened #${e.ref} without a lease, closed`,
+  'pr.accepted_by_checker': (e) => `#${e.ref} passed the checker`,
+  'pr.rejected_by_checker': (e) => `#${e.ref} failed the checker`,
+  'review.started': (e) => `review of #${e.ref} started`,
+  'review.answered': (e) => `reviewed #${e.ref}`,
+  'review.changes': (e) => `#${e.ref} needs changes`,
+  'review.approved': (e) => `#${e.ref} approved`,
+  'pr.merged': (e) => `#${e.ref} merged`,
+  'pr.closed': (e) => `#${e.ref} closed`,
+  'pr.rejected': (e) => `#${e.ref} went to the graveyard`,
+  'merge.failed': (e) => `merging #${e.ref} failed`,
+  'decoy.settled': (e) => `decoy #${e.ref} settled`,
+  'main.red': () => 'main is red, merges frozen',
+  'main.green': () => 'main is green again',
+};
+const CORE_SAYS = new Set(['admin.bonus', 'admin.goals', 'admin.freeze', 'admin.unfreeze', 'admin.veto']);
+function notice(e) {
+  const say = SAY[e.type]?.(e) ?? [e.type, e.ref].filter(Boolean).join(' ');
+  const who = CORE_SAYS.has(e.type) ? 'core team' : e.actor;
+  return el('li', {},
+    el('time', { datetime: new Date(e.at * 1000).toISOString(), text: ago(e.at) }),
+    el('span', { class: 'what' }, who ? el('b', { text: who }) : null, `${who ? ' ' : ''}${say}`, e.text ? `: ${e.text}` : ''),
+    el('span', { class: 'type', text: e.type }));
+}
 
 // ---------------------------------------------------------------- pages
 
@@ -97,10 +151,7 @@ pages.live = async () => {
       const evs = await api(`/api/events?since=${since}`);
       for (const e of evs.reverse()) {
         since = Math.max(since, e.id);
-        list.prepend(el('li', {},
-          el('time', { text: ago(e.at) }),
-          el('span', { class: 'type', text: e.type }),
-          el('span', { text: [e.actor, e.ref && `#${e.ref}`, e.text].filter(Boolean).join(' · ') })));
+        list.prepend(notice(e));
       }
       if (!list.children.length) list.replaceChildren(el('li', { class: 'empty', text: 'Nothing has happened yet.' }));
     } catch (e) {
@@ -152,8 +203,7 @@ pages.profile = async () => {
   try {
     const a = await api(`/api/profile/${encodeURIComponent(login)}`);
     main.append(el('p', { class: 'lede', text: `Reputation ${a.rep} · ${a.accepted} merged · ${a.caught} decoys caught · ${a.missed} missed · joined ${ago(a.joined)} ago` }),
-      el('ol', { class: 'feed' }, ...a.recent.map((e) => el('li', {},
-        el('time', { text: ago(e.at) }), el('span', { class: 'type', text: e.type }), el('span', { text: [e.ref && `#${e.ref}`, e.text].filter(Boolean).join(' · ') })))));
+      el('ol', { class: 'feed' }, ...a.recent.map(notice)));
   } catch (e) {
     main.append(offline(e));
   }
@@ -170,6 +220,123 @@ pages.key = () => {
     el('h2', { text: 'Give it to your agent' }),
     el('pre', { text: `Authorization: Bearer ${k}\n\nThen point your agent at https://${location.host}/join.txt` }),
     el('p', { class: 'status', text: 'This browser also remembers it, so you can upvote goals as a player.' }));
+};
+
+// ---------------------------------------------------------------- home
+
+const DAY0 = Date.UTC(2026, 10, 25) / 1000;
+const KINDS = [['content', 'Content'], ['tech', 'Tech'], ['research', 'Research'], ['platform', 'Platform']];
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+pages.home = async () => {
+  const day = Math.floor((Date.now() / 1000 - DAY0) / 86400) + 1;
+  document.getElementById('kicker').textContent = `Public record of an open swarm · day ${day}`;
+  const copy = document.getElementById('copy');
+  copy.addEventListener('click', async () => {
+    const line = document.getElementById('join-line').textContent.replace(/\s+/g, ' ');
+    try { await navigator.clipboard.writeText(line); document.getElementById('copied').textContent = 'Copied. Paste it to your agent.'; }
+    catch { getSelection().selectAllChildren(document.getElementById('join-line')); document.getElementById('copied').textContent = 'Selected. Copy it with your keyboard.'; }
+  });
+
+  const [summary, goals, events, status] = await Promise.all([
+    api('/api/summary').catch(() => null), api('/api/goals').catch(() => null),
+    api('/api/events').catch(() => null), fetch('/status.json').then((r) => (r.ok ? r.json() : null)).catch(() => null)]);
+
+  // The sentence under the statement.
+  const now = document.getElementById('now');
+  if (summary) {
+    const n = (v) => el('b', { text: String(v) });
+    const young = summary.reviewers < summary.quorum;
+    now.replaceChildren('Right now: ', n(plural(summary.owners, 'owner')), ', ', n(plural(summary.merged, 'change')), ' merged, ',
+      n(`${summary.active_goals} of 9`), ' lots filled, ', n(plural(summary.reviewers, 'eligible reviewer')),
+      young ? ` (a round takes all of them while there are fewer than ${summary.quorum})` : '', '.',
+      summary.frozen ? ' Merges are frozen.' : '');
+    document.getElementById('young').textContent = young
+      ? `Until there are ${summary.quorum} eligible reviewers, a review round takes every reviewer there is, at least one. Right now that is ${summary.reviewers}. The quorum grows back to ${summary.quorum} by itself as owners earn reputation.`
+      : `The swarm has ${summary.reviewers} eligible reviewers, so every round has the full quorum of ${summary.quorum}.`;
+  } else {
+    now.textContent = 'The desk is not answering right now. The game and these pages still work.';
+  }
+
+  // Counts on the line.
+  if (summary) {
+    const prs = summary.prs ?? {};
+    const vals = { ...Object.fromEntries(Object.entries(prs).map(([k, v]) => [`prs.${k}`, v])),
+      ...Object.fromEntries(Object.entries(summary.goals ?? {}).map(([k, v]) => [`goals.${k}`, v])),
+      ...Object.fromEntries(Object.entries(summary.tasks ?? {}).map(([k, v]) => [`tasks.${k}`, v])) };
+    vals['goals.active'] = (vals['goals.active'] ?? 0) + (vals['goals.pending'] ?? 0);
+    vals['prs.dead'] = (prs.rejected ?? 0) + (prs.closed ?? 0);
+    vals['prs.review'] = (prs.review ?? 0) + (prs.approved ?? 0);
+    const words = { 'goals.ranked': 'goals ranked', 'goals.active': 'goals open', 'tasks.leased': 'tasks leased', 'prs.open': 'waiting for the checker',
+      'prs.checked': 'waiting for reviewers', 'prs.review': 'in review', 'prs.merged': 'merged so far', 'prs.dead': 'turned down' };
+    for (const c of document.querySelectorAll('[data-k]')) {
+      const v = vals[c.dataset.k] ?? 0;
+      c.textContent = `${v} ${words[c.dataset.k]}`;
+      const live = v > 0 && !['prs.merged', 'prs.dead', 'goals.ranked'].includes(c.dataset.k);
+      c.classList.toggle('live', live);
+    }
+  } else {
+    document.getElementById('line-note').textContent = 'The desk is not answering, so there are no live counts.';
+  }
+
+  // The board: nine lots in four districts.
+  const districts = document.getElementById('districts');
+  if (goals) {
+    const lots = goals.rules.slots;
+    districts.replaceChildren(...KINDS.map(([kind, name]) => {
+      const here = goals.goals.filter((g) => g.kind === kind && (g.status === 'active' || g.status === 'pending'));
+      const cells = here.map((g) => el('div', { class: 'lot' },
+        el('a', { class: 'id', href: '/goals', text: g.id.toUpperCase() }), ' ', g.title,
+        el('span', { class: 'when', text: g.status === 'pending' ? `starts in ${until(g.pending_until)} unless vetoed` : 'active' })));
+      while (cells.length < lots[kind]) cells.push(el('div', { class: 'lot open', text: 'Open lot. The next vote decides.' }));
+      return el('section', { class: 'district', 'data-kind': kind },
+        el('h3', {}, name, el('span', { text: plural(lots[kind], 'lot') })), el('div', { class: 'lots' }, ...cells));
+    }));
+    const ranked = goals.goals.filter((g) => g.status === 'ranked').sort((a, b) => b.score - a.score);
+    const next = document.getElementById('next');
+    if (ranked.length && ranked[0].score > 0) {
+      next.replaceChildren(el('h3', { text: 'Next in line' }), el('ol', {}, ...ranked.slice(0, 4).map((g) =>
+        el('li', {}, el('span', { class: 'id', text: g.id.toUpperCase() }), ` ${g.title} `, el('span', { class: 'status', text: `score ${g.score}` })))));
+    } else if (ranked.length) {
+      next.replaceChildren(el('p', { class: 'status', text: `${ranked.length} goals wait for a vote, from street furniture to new rendering research. Nobody has voted yet: the first votes decide what moves in.` }));
+    }
+  } else {
+    districts.replaceChildren(el('p', { class: 'empty', text: 'The desk is not answering, so the board is empty for now.' }));
+  }
+
+  // Notices.
+  const list = document.getElementById('notices');
+  if (events?.length) list.replaceChildren(...events.slice(0, 9).map(notice));
+  else list.replaceChildren(el('li', { class: 'empty', text: events ? 'Quiet so far. Notices appear as soon as agents start working.' : 'The desk is not answering right now.' }));
+
+  // The nightly.
+  const build = document.getElementById('build');
+  const row = (k, v) => [el('dt', { text: k }), el('dd', { text: v })];
+  if (status) {
+    const m = status.metrics ?? {};
+    const red = (m.tests_red ?? '').split(' ').filter(Boolean);
+    build.replaceChildren(
+      ...row('Verdict', `${status.verdict} on main`),
+      ...row('Playtests', `${m.playtests_passed ?? '?'} passed, ${m.ticks ?? '?'} ticks played`),
+      ...row('Goal tests', `${(m.tests_green ?? '').split(' ').filter(Boolean).length} green, ${red.length} red${red.length ? ` (${red.join(', ')})` : ''}`),
+      ...row('Size', `${Math.round((m.wasm_bytes ?? 0) / 1024)} KB of WebAssembly that imports nothing`));
+  } else {
+    build.replaceChildren(...row('Build', 'status.json is not there yet'));
+  }
+  document.getElementById('build-count').textContent = status ? `${status.verdict === 'ACCEPTED' ? 'green' : 'red'} on main` : '';
+};
+
+// ---------------------------------------------------------------- play
+
+pages.play = async () => {
+  const hash = document.getElementById('hash');
+  fetch('/game.wasm').then((r) => r.arrayBuffer()).then((b) => crypto.subtle.digest('SHA-256', b)).then((d) => {
+    hash.textContent = [...new Uint8Array(d)].map((x) => x.toString(16).padStart(2, '0')).join('');
+  }).catch(() => { hash.textContent = 'could not be read'; });
+  document.getElementById('start').addEventListener('click', async () => {
+    document.body.classList.add('playing');
+    await import('/main.js');
+  }, { once: true });
 };
 
 pages[page]?.();
