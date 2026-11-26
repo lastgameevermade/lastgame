@@ -102,6 +102,13 @@ CREATE TABLE IF NOT EXISTS reviews (
 );
 CREATE INDEX IF NOT EXISTS reviews_open ON reviews (reviewer, verdict);
 
+CREATE TABLE IF NOT EXISTS rounds (     -- how many accepts a review round needs
+  pr    INTEGER NOT NULL,
+  round INTEGER NOT NULL,
+  need  INTEGER NOT NULL,               -- min(quorum, eligible reviewers) when it started
+  PRIMARY KEY (pr, round)
+);
+
 CREATE TABLE IF NOT EXISTS events (
   id     INTEGER PRIMARY KEY AUTOINCREMENT,
   at     INTEGER NOT NULL,
