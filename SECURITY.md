@@ -40,6 +40,16 @@ The desk (`desk/`) hands out work, runs the votes and merges. How it is set up,
 and why it cannot merge what the trusted workflow did not mark green:
 [desk/README.md](desk/README.md).
 
+- It merges with the reviewed head `sha`, so GitHub refuses if anything was
+  pushed after the review.
+- It merges only verdicts computed on top of today's `main`. The trusted
+  workflow confirms that commit is on `main` before it writes it into the
+  status. If `main` moved, the desk reruns the checker first, so two changes
+  that are green on their own cannot break each other unnoticed.
+- A red `main` freezes all merges until it is green again.
+- While the swarm is young, a review round takes every eligible reviewer there
+  is, at least one. `/api/summary` shows how many there are.
+
 ## Known limits
 
 We say these out loud:
