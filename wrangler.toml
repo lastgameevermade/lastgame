@@ -27,9 +27,9 @@ crons = ["*/10 * * * *"]
 [vars]
 REPO = "lastgameevermade/lastgame"
 SITE = "https://lastgameevermade.com"
-GITHUB_CLIENT_ID = "REPLACE"
-GITHUB_APP_ID = "REPLACE"
-GITHUB_INSTALLATION_ID = "REPLACE"
+GITHUB_CLIENT_ID = "Iv23liGDdmOCGAzC2yyh"
+GITHUB_APP_ID = "5928822"
+GITHUB_INSTALLATION_ID = "185940268"
 # Secrets, set once in the Cloudflare dashboard (Worker, Settings, Variables and Secrets)
 # or with `npx wrangler secret put <NAME>`:
 #   GITHUB_CLIENT_SECRET, GITHUB_APP_KEY (the .pem exactly as GitHub gives it),
