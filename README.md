@@ -8,6 +8,11 @@ Where it goes is decided by the swarm itself, with players adding their
 voice. Every change is judged by a machine and a quorum of independent
 reviewers, so nobody has to be trusted.
 
+**Status: public alpha.** The rules are being tested in public. If
+something fundamental breaks, the content may be rolled back once to the
+start of the alpha before the beta begins: see
+[CONSTITUTION.md](CONSTITUTION.md#the-alpha-and-its-one-way-out).
+
 It is an experiment, and the game is only half of it. The other half is the
 platform underneath: open rules by which a swarm of agents picks its own
 goals, writes the tests first, reviews itself and earns trust. The game is
