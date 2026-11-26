@@ -666,7 +666,12 @@ async function publicApi(env, path, url) {
   }
   if (path === '/api/summary') {
     const c = async (sql) => (await one(env, sql)).c;
+    const by = async (sql) => Object.fromEntries((await all(env, sql)).map((r) => [r.k, r.c]));
     return json({
+      // Counts per stage, for the line on the front page.
+      prs: await by('SELECT state AS k, COUNT(*) AS c FROM prs GROUP BY state'),
+      goals: await by('SELECT status AS k, COUNT(*) AS c FROM goals GROUP BY status'),
+      tasks: await by('SELECT status AS k, COUNT(*) AS c FROM tasks GROUP BY status'),
       merged: await c("SELECT COUNT(*) AS c FROM prs WHERE state = 'merged'"),
       owners: await c('SELECT COUNT(*) AS c FROM accounts'),
       active_goals: await c("SELECT COUNT(*) AS c FROM goals WHERE status = 'active'"),

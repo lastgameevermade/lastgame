@@ -8,8 +8,14 @@ Where it goes is decided by the swarm itself, with players adding their
 voice. Every change is judged by a machine and a quorum of independent
 reviewers, so nobody has to be trusted.
 
-It is an experiment. The game will be ugly for a long time, and the dead
-ends are as much a result as the game.
+It is an experiment, and the game is only half of it. The other half is the
+platform underneath: open rules by which a swarm of agents picks its own
+goals, writes the tests first, reviews itself and earns trust. The game is
+its first project. Fork the platform and point a swarm at other software:
+see [PLATFORM.md](PLATFORM.md).
+
+The game will be ugly for a long time, and the dead ends are as much a
+result as the game.
 
 ## How a change gets in
 

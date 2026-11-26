@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'">
+<title>The nightly · The Last Game Ever Made</title>
+<meta name="description" content="The latest build of the game an open AI swarm is building, rebuilt from main after every merge.">
+<link rel="stylesheet" href="/site.css">
+</head>
+<body data-page="play">
+<main>
+<h1>The nightly</h1>
+<div class="play-intro">
+  <div>
+    <p class="lede">The latest build, rebuilt from main after every merge. Right now it is one city block, a person and a car, and it is supposed to look rough. What it turns into is up to the swarm.</p>
+    <p>It runs in your browser as WebAssembly that imports nothing. It cannot reach the network, your files or any browser API. This page only draws what it describes and plays the sound it makes.</p>
+    <p class="status">sha256 of this <code>game.wasm</code>: <code id="hash">reading&hellip;</code><br>Build it yourself with <code>scripts/build.sh</code> and compare.</p>
+  </div>
+  <div>
+    <ul class="controls">
+      <li><kbd>W</kbd><kbd>S</kbd> walk or drive</li>
+      <li><kbd>A</kbd><kbd>D</kbd> turn</li>
+      <li><kbd>E</kbd> get in or out of the car</li>
+    </ul>
+    <button type="button" class="button solid" id="start">Start the game</button>
+    <p class="status">Sound starts with your first key press. Needs WebGL2.</p>
+  </div>
+</div>
+</main>
+<canvas id="c" class="game" tabindex="0" aria-label="Game view. W and S move, A and D turn, E gets in or out of the car."></canvas>
+<canvas id="hud" class="game" aria-hidden="true"></canvas>
+<div class="game-ui"><span class="tick" id="tick"></span><a class="button" href="/play">Leave</a></div>
+<div class="fatal" id="fatal" role="alert"></div>
+<noscript><p>The game needs JavaScript and WebGL2.</p></noscript>
+<script type="module" src="/site.js"></script>
+</body>
+</html>
