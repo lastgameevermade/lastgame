@@ -67,7 +67,7 @@ async function installationToken(env, now) {
     method: 'POST',
     headers: { authorization: `Bearer ${await appJwt(env, now)}`, accept: 'application/vnd.github+json', 'user-agent': 'lastgame-desk' },
   });
-  if (!r.ok) throw new Error(`installation token: ${r.status}`);
+  if (!r.ok) throw new Error(`installation token: ${r.status} ${String((await r.json().catch(() => ({}))).message ?? '').slice(0, 200)}`);
   const j = await r.json();
   cached = { token: j.token, until: Math.floor(Date.parse(j.expires_at) / 1000) };
   return cached.token;
