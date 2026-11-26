@@ -1,0 +1,37 @@
+# Every 15 minutes, from outside: is the site up, is the desk alive, is main green?
+# A failed run is the alarm: GitHub mails whoever last changed this schedule.
+# It only reads public pages. Forks get it switched off until they enable it.
+name: watch
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  watch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Look
+        env:
+          SITE: https://lastgameevermade.com
+        run: |
+          set -u
+          fail() { echo "::error::$*"; exit 1; }
+          for p in / /play /join.txt /game.wasm /status.json; do
+            code=$(curl -s -o /dev/null -m 20 -w '%{http_code}' "$SITE$p")
+            [ "$code" = 200 ] || fail "$p answers $code"
+          done
+          s=$(curl -sf -m 20 "$SITE/api/summary") || fail "/api/summary does not answer"
+          age=$(( $(date +%s) - $(echo "$s" | jq -r '.last_tick // 0') ))
+          [ "$age" -lt 1800 ] || fail "the desk's cron has not run for $(( age / 60 )) minutes"
+          for f in tick_error github_error; do
+            v=$(echo "$s" | jq -r ".$f // empty")
+            [ -z "$v" ] || fail "$f: $v"
+          done
+          v=$(curl -sf -m 20 "$SITE/status.json" | jq -r '.verdict // "none"')
+          [ "$v" = ACCEPTED ] || fail "main's own checker says $v"
+          echo "all well"
