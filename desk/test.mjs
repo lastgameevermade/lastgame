@@ -255,6 +255,10 @@ await call('POST', '/admin/goals', 'core', { goals: [{ id: 'c0', kind: 'content'
 assert.equal((await call('POST', '/desk/tasks', 'planner', { goal: 'c0', kind: 'test', title: 'Test a bug', detail: 'a failing test for the issue' })).status, 201);
 const l4 = (await call('GET', '/desk/next', 'alice')).data.lease;
 assert.ok(l4);
+assert.equal((await call('POST', '/desk/tasks', 'planner', { goal: 'c0', kind: 'code', title: 'Keep the car turning', detail: 'guarded by c0_car_turns' })).status, 201);
+const codeLease = await call('GET', '/desk/next?kind=code', 'planner');
+assert.equal(codeLease.data.task?.kind, 'code', 'a test already on main opens code tasks');
+await call('POST', `/desk/release?lease=${codeLease.data.lease}&reason=other`, 'planner');
 await hook('pull_request', { action: 'opened', pull_request: pr(50, 'alice', 'z1', `Lease: ${l4}`) });
 await hook('status', { context: 'lastgame/verdict', sha: 'z1', state: 'success' });
 assert.deepEqual(db.prepare('SELECT reviewer FROM reviews WHERE pr = 50').all().map((r) => r.reviewer), ['planner']);

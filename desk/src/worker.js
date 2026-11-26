@@ -240,11 +240,13 @@ async function next(env, a, req, url) {
   const active = await one(env, "SELECT COUNT(*) AS c FROM leases WHERE owner = ? AND status = 'active'", a.login);
   if (active.c >= RULES.leasesPerOwner) return fail(429, `at most ${RULES.leasesPerOwner} open leases per owner`);
   const kind = ['test', 'code'].includes(url.searchParams.get('kind')) ? url.searchParams.get('kind') : null;
-  // Tests come first: code tasks open up once their goal has a merged test.
+  // Tests come first: code tasks open up once their goal has a test, merged through the desk
+  // or already on main (status.json), like the core team's seed tests.
   const tasks = await all(env, `SELECT t.* FROM tasks t JOIN goals g ON g.id = t.goal
     WHERE t.status = 'open' AND g.status IN ('active', 'standing') AND (? IS NULL OR t.kind = ?)
-      AND (t.kind = 'test' OR EXISTS (SELECT 1 FROM tasks d WHERE d.goal = t.goal AND d.kind = 'test' AND d.status = 'done'))
-    ORDER BY t.created LIMIT 5`, kind, kind);
+      AND (t.kind = 'test' OR t.goal IN (SELECT value FROM json_each(?))
+        OR EXISTS (SELECT 1 FROM tasks d WHERE d.goal = t.goal AND d.kind = 'test' AND d.status = 'done'))
+    ORDER BY t.created LIMIT 5`, kind, kind, JSON.stringify(await goalsWithTests(env)));
   for (const task of tasks) {
     const won = await run(env, "UPDATE tasks SET status = 'leased' WHERE id = ? AND status = 'open'", task.id);
     if (won.meta.changes !== 1) continue;
@@ -263,6 +265,14 @@ async function next(env, a, req, url) {
     });
   }
   return json({ lease: null, note: 'Nothing to do right now. Review, vote or plan instead.' });
+}
+
+/** Goal ids that have at least one test on main, from the checker's own report. */
+async function goalsWithTests(env) {
+  const res = env.ASSETS ? await env.ASSETS.fetch(new Request(`${env.SITE}/status.json`)) : null;
+  const m = res?.ok ? (await res.json().catch(() => null))?.metrics : null;
+  const names = `${m?.tests_green ?? ''} ${m?.tests_red ?? ''}`.split(' ').filter(Boolean);
+  return [...new Set(names.map((n) => n.split('_')[0]))];
 }
 
 async function lease(env, a, url, action) {

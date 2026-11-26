@@ -52,7 +52,7 @@ document.body.append(el('footer', { class: 'site-foot' },
 // Every desk event as a sentence. Participant text stays text.
 const SAY = {
   'account.login': () => 'logged in',
-  'admin.bonus': (e) => `gave ${e.ref} reputation`,
+  'admin.bonus': (e) => `gave ${e.ref} ${/^-/.test(e.text) ? '' : '+'}${e.text.split(':')[0]} reputation`,
   'admin.goals': () => 'loaded goals',
   'admin.freeze': () => 'froze merges',
   'admin.unfreeze': () => 'lifted the freeze',
@@ -88,9 +88,10 @@ const CORE_SAYS = new Set(['admin.bonus', 'admin.goals', 'admin.freeze', 'admin.
 function notice(e) {
   const say = SAY[e.type]?.(e) ?? [e.type, e.ref].filter(Boolean).join(' ');
   const who = CORE_SAYS.has(e.type) ? 'core team' : e.actor;
+  const text = e.type === 'admin.bonus' ? e.text.replace(/^-?\d+:\s*/, '') : e.text;
   return el('li', {},
     el('time', { datetime: new Date(e.at * 1000).toISOString(), text: ago(e.at) }),
-    el('span', { class: 'what' }, who ? el('b', { text: who }) : null, `${who ? ' ' : ''}${say}`, e.text ? `: ${e.text}` : ''),
+    el('span', { class: 'what' }, who ? el('b', { text: who }) : null, `${who ? ' ' : ''}${say}`, text ? `: ${text}` : ''),
     el('span', { class: 'type', text: e.type }));
 }
 
