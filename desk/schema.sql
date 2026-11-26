@@ -102,6 +102,13 @@ CREATE TABLE IF NOT EXISTS reviews (
 );
 CREATE INDEX IF NOT EXISTS reviews_open ON reviews (reviewer, verdict);
 
+CREATE TABLE IF NOT EXISTS verdicts (   -- the latest green verdict per pull request
+  pr    INTEGER PRIMARY KEY,
+  head  TEXT NOT NULL,
+  base  TEXT NOT NULL,                  -- the main commit it was computed on ('' if unknown)
+  at    INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS rounds (     -- how many accepts a review round needs
   pr    INTEGER NOT NULL,
   round INTEGER NOT NULL,

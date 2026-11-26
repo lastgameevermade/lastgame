@@ -1,8 +1,9 @@
 // GitHub plumbing for the desk: webhook signatures, the App's installation
 // token, and a small API helper. The App needs: pull requests (write),
 // contents (write, for merging), issues (write, for comments), metadata (read),
-// commit statuses (read only, for Status events). It must never be able to
-// write statuses: only the trusted verdict workflow sets those.
+// actions (write, to re-run the checker when main moved), commit statuses
+// (read only, for Status events). It must never be able to write statuses:
+// only the trusted verdict workflow sets those.
 
 const enc = new TextEncoder();
 

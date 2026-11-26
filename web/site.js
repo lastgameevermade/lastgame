@@ -80,6 +80,7 @@ const SAY = {
   'pr.closed': (e) => `#${e.ref} closed`,
   'pr.rejected': (e) => `#${e.ref} went to the graveyard`,
   'merge.failed': (e) => `merging #${e.ref} failed`,
+  'merge.recheck': (e) => `#${e.ref} is checked again before merging`,
   'decoy.settled': (e) => `decoy #${e.ref} settled`,
   'main.red': () => 'main is red, merges frozen',
   'main.green': () => 'main is green again',

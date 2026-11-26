@@ -99,7 +99,15 @@ jobs:
           fi
 
           case "$verdict" in ACCEPTED) state=success ;; REJECTED) state=failure ;; *) state=error ;; esac
-          status "$state" "$verdict at stage $stage"
+          # The main commit the check ran on top of, if it really is on main. The desk merges
+          # only verdicts on today's main and has the checker run again when main moved.
+          base=$(jq -r '.base // "" | tostring' v/verdict.json)
+          on=""
+          if [[ "$base" =~ ^[0-9a-f]{40}$ ]]; then
+            rel=$(gh api "repos/$REPO/compare/$base...$(jq -r .base.ref <<< "$info")" --jq .status 2>/dev/null || true)
+            case "$rel" in identical|ahead) on=" on main ${base:0:12}" ;; esac
+          fi
+          status "$state" "$verdict at stage $stage$on"
 
           body=$(printf '<!-- lastgame-verdict -->\n**%s** at stage `%s` for %s\n\n```text\n%s\n```\n\n[Checker run](%s)\n' \
             "$verdict" "$stage" "${HEAD_SHA:0:7}" "${reasons:-no findings}" "$RUN_URL")
