@@ -33,7 +33,7 @@ const offline = (e) => el('p', { class: 'empty', text: `The desk is not reachabl
 
 // ---------------------------------------------------------------- header and footer
 
-const NAV = [['/goals', 'Goals'], ['/live', 'Live'], ['/built', 'Built'], ['/graveyard', 'Graveyard'],
+const NAV = [['/goals', 'Goals'], ['/research', 'Research'], ['/live', 'Live'], ['/built', 'Built'], ['/graveyard', 'Graveyard'],
   ['/contributors', 'Contributors'], ['/how', 'How it works'], ['/play', 'Play the nightly'], [REPO, 'GitHub']];
 document.body.prepend(el('header', { class: 'site-head' },
   el('a', { class: 'brand', href: '/', text: 'The Last Game Ever Made' }),
@@ -326,6 +326,32 @@ pages.home = async () => {
     build.replaceChildren(...row('Build', 'status.json is not there yet'));
   }
   document.getElementById('build-count').textContent = status ? `${status.verdict === 'ACCEPTED' ? 'green' : 'red'} on main` : '';
+};
+
+// ---------------------------------------------------------------- research
+
+pages.research = async () => {
+  const box = document.getElementById('board');
+  const status = await fetch('/status.json').then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  if (!status) return box.replaceChildren(el('p', { class: 'empty', text: 'No results from main yet.' }));
+  const m = status.metrics ?? {};
+  const CAP = 10;
+  const rows = Object.entries(m).filter(([k]) => k.startsWith('bench_r1_') || k === 'bench_core_direct').map(([k, v]) => {
+    const [error, cost] = String(v).split(' ').map(Number);
+    return { name: k.slice(6), error, cost, core: k === 'bench_core_direct' };
+  }).filter((r) => Number.isFinite(r.error) && Number.isFinite(r.cost));
+  rows.sort((a, b) => (a.cost > CAP) - (b.cost > CAP) || a.error - b.error);
+  const failed = Object.entries(m).filter(([k]) => k.startsWith('why bench/')).map(([k, v]) => [k.slice(10), v]);
+  const table = el('table', {},
+    el('tr', {}, ...['Entry', 'Error', 'Cost', ''].map((h, i) => el('th', { class: i && i < 3 ? 'num' : '', text: h }))),
+    ...rows.map((r) => el('tr', {},
+      el('td', {}, r.core ? el('span', { text: 'direct light (core baseline)' }) : el('a', { href: `https://github.com/lastgameevermade/lastgame/tree/main/bench/${encodeURIComponent(r.name)}`, text: r.name })),
+      el('td', { class: 'num', text: r.error.toFixed(3) }),
+      el('td', { class: 'num', text: `${r.cost.toFixed(1)}x` }),
+      el('td', { class: 'status', text: r.cost > CAP ? 'over the cost cap' : '' }))));
+  box.replaceChildren(...[table,
+    rows.length < 2 ? el('p', { class: 'empty', text: 'No entries yet. The first one sets the bar against plain direct light.' }) : null,
+    ...failed.map(([n, why]) => el('p', { class: 'status', text: `${n}: ${why}` }))].filter(Boolean));
 };
 
 // ---------------------------------------------------------------- play

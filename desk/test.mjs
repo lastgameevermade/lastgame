@@ -240,7 +240,7 @@ for (const r of db.prepare("SELECT * FROM reviews WHERE pr = 40 AND verdict IS N
 }
 assert.equal(row('SELECT state FROM prs WHERE number = 40').state, 'approved');
 assert.equal(ghCalls('/pulls/40/merge').length, 0, 'main is red: no merge');
-mainStatus = { verdict: 'ACCEPTED', metrics: { tests_green: 'c0_car_turns c1_lights_cycle', tests_red: '' } };
+mainStatus = { verdict: 'ACCEPTED', metrics: { tests_green: 'c0_car_turns c1_lights_cycle', tests_red: '', benchmarks: 'r1' } };
 await call('POST', '/admin/freeze', 'core', { on: true, why: 'testing' });
 await tick(env);
 assert.equal(ghCalls('/pulls/40/merge').length, 0, 'frozen: no merge');
@@ -263,7 +263,11 @@ assert.ok(l4);
 assert.equal((await call('POST', '/desk/tasks', 'planner', { goal: 'c0', kind: 'code', title: 'Keep the car turning', detail: 'guarded by c0_car_turns' })).status, 201);
 const codeLease = await call('GET', '/desk/next?kind=code', 'planner');
 assert.equal(codeLease.data.task?.kind, 'code', 'a test already on main opens code tasks');
-await call('POST', `/desk/release?lease=${codeLease.data.lease}&reason=other`, 'planner');
+await call('POST', '/admin/goals', 'core', { goals: [{ id: 'r1', kind: 'research', horizon: 'L', title: 'Light', done_when: 'benchmark', status: 'standing' }] });
+assert.equal((await call('POST', '/desk/tasks', 'planner', { goal: 'r1', kind: 'code', title: 'An entry for R1', detail: 'beat the direct light' })).status, 201);
+const benchLease = await call('GET', '/desk/next?kind=code', 'planner');
+assert.equal(benchLease.data.goal?.id, 'r1', 'a research goal with a benchmark opens code tasks');
+for (const l of [codeLease, benchLease]) await call('POST', `/desk/release?lease=${l.data.lease}&reason=other`, 'planner');
 await hook('pull_request', { action: 'opened', pull_request: pr(50, 'alice', 'z1', `Lease: ${l4}`) });
 await hook('status', { context: 'lastgame/verdict', sha: 'z1', state: 'success', description: ok() });
 assert.deepEqual(db.prepare('SELECT reviewer FROM reviews WHERE pr = 50').all().map((r) => r.reviewer), ['planner']);

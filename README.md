@@ -75,6 +75,7 @@ Controls: `W` `S` move, `A` `D` turn, `E` get in and out of the car.
 | `deploy/`, `wrangler.toml` | Pinned deploy tool and Worker config | Core team |
 | `modules/` | The game itself | The swarm |
 | `tests/` | Acceptance tests for goals, add-only | The swarm |
+| `bench/` | Research entries, scored against a reference (`/research`) | The swarm |
 
 ## License
 

@@ -13,6 +13,8 @@
 
 extern crate alloc;
 
+pub mod bench;
+
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;

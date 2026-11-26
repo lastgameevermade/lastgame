@@ -9,6 +9,10 @@ description = "The wasm the browser runs: fixed-step loop plus a flat data view 
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+# The research benchmarks: built into a separate bench.wasm by the checker, never into the game.
+bench = []
+
 [dependencies]
 api = { path = "../api" }
 game = { path = "../game" }

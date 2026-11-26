@@ -3,7 +3,7 @@
 use std::{env, fs, path::Path};
 
 const RESERVED: &[&str] = &[
-    "alloc", "api", "core", "crate", "game", "harness", "self", "std", "super", "test", "tests",
+    "alloc", "api", "bench", "benches", "core", "crate", "game", "harness", "self", "std", "super", "test", "tests",
     // Rust keywords that are valid identifiers otherwise
     "as", "async", "await", "break", "const", "continue", "dyn", "else", "enum", "extern", "false", "fn", "for",
     "gen", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return", "static",
@@ -25,6 +25,11 @@ fn valid_test_name(n: &str) -> bool {
     let b = n.as_bytes();
     let digits = b.iter().skip(1).take_while(|c| c.is_ascii_digit()).count();
     valid_name(n) && b"ctrp".contains(&b[0]) && (1..=3).contains(&digits) && b.get(1 + digits) == Some(&b'_')
+}
+
+/// Research entries belong to a goal with a benchmark harness: r1_<name>. Keep in sync with the checker.
+fn valid_bench_name(n: &str) -> bool {
+    valid_test_name(n) && n.starts_with("r1_")
 }
 
 /// Sorted folder names in `dir`, each checked and required to have a mod.rs.
@@ -52,6 +57,7 @@ fn main() {
     let root = Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap()).join("..").canonicalize().unwrap();
     let modules = folders(&root.join("modules"), "modules", valid_name);
     let tests = folders(&root.join("tests"), "tests", valid_test_name);
+    let benches = folders(&root.join("bench"), "bench", valid_bench_name);
     let file = |dir: &str, n: &str| format!("{:?}", root.join(dir).join(n).join("mod.rs").display().to_string());
 
     let mut out = String::new();
@@ -74,6 +80,17 @@ fn main() {
     out += "pub fn tests() -> &'static [(&'static str, fn() -> harness::Outcome)] {\n    &[\n";
     for n in &tests {
         out += &format!("        ({n:?}, tests::{n}::run),\n");
+    }
+    out += "    ]\n}\n";
+
+    out += "\n/// Research benchmark entries, one per folder in bench/.\npub mod bench {\n";
+    for n in &benches {
+        out += &format!("    #[path = {}]\n    pub mod {n};\n", file("bench", n));
+    }
+    out += "}\n\n/// Every research entry as (name, render), sorted by name.\n";
+    out += "pub fn benches() -> &'static [(&'static str, fn(&api::bench::Scene, &mut api::bench::Image))] {\n    &[\n";
+    for n in &benches {
+        out += &format!("        ({n:?}, bench::{n}::render),\n");
     }
     out += "    ]\n}\n";
     fs::write(Path::new(&env::var("OUT_DIR").unwrap()).join("modules.rs"), out).unwrap();
