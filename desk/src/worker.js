@@ -556,6 +556,14 @@ export async function scheduledTick(env) {
     console.error(e);
     await setting(env, 'tick_error', `${now(env)} ${String(e?.stack ?? e).slice(0, 500)}`).catch(() => {});
   }
+  // The App's own health, so a broken key or installation shows here instead of as silent 500s.
+  // The texts are HTTP statuses, GitHub's messages or WebCrypto errors: never key material.
+  try {
+    const r = await gh(env, 'GET', `/repos/${env.REPO}`);
+    await setting(env, 'github_error', r.ok ? '' : `${now(env)} GET /repos: ${r.status}`);
+  } catch (e) {
+    await setting(env, 'github_error', `${now(env)} ${String(e?.message ?? e).slice(0, 300)}`).catch(() => {});
+  }
 }
 
 // ---------------------------------------------------------------- login (GitHub OAuth, no scopes)
@@ -659,6 +667,7 @@ async function publicApi(env, path, url) {
       frozen: !!(await setting(env, 'frozen')) || (await setting(env, 'main_red')) === '1',
       last_tick: Number(await setting(env, 'last_tick')) || null,
       tick_error: (await setting(env, 'tick_error')) || null,
+      github_error: (await setting(env, 'github_error')) || null,
     }, 200, PUBLIC);
   }
   if (path === '/api/contributors') {

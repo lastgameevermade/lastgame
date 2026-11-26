@@ -119,6 +119,7 @@ await person('boss', { core: 1 });
 await scheduledTick(env);
 assert.equal((await call('GET', '/api/summary')).data.last_tick, clock);
 assert.equal((await call('GET', '/api/summary')).data.tick_error, null);
+assert.equal((await call('GET', '/api/summary')).data.github_error, null, 'the App reaches GitHub');
 assert.equal(row("SELECT title FROM goals WHERE id = 'c77'").title, 'Seeded goal');
 db.prepare("DELETE FROM goals").run();
 db.prepare("DELETE FROM events").run();
