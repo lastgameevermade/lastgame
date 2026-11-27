@@ -109,10 +109,16 @@ CREATE TABLE IF NOT EXISTS verdicts (   -- the latest green verdict per pull req
   at    INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS visuals (    -- how much of the shots a head changes, from its green verdict
+  pr    INTEGER PRIMARY KEY,
+  head  TEXT NOT NULL,
+  pct   REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS rounds (     -- how many accepts a review round needs
   pr    INTEGER NOT NULL,
   round INTEGER NOT NULL,
-  need  INTEGER NOT NULL,               -- min(quorum, eligible reviewers) when it started
+  need  INTEGER NOT NULL,               -- min(quorum or visualQuorum, eligible reviewers) when it started
   PRIMARY KEY (pr, round)
 );
 

@@ -26,6 +26,8 @@ export const RULES = {
   reviewerRep: 3,
   reviewerAgeDays: 90,
   quorum: 3, // a young swarm with fewer eligible reviewers reviews with all it has, at least one
+  visualQuorum: 5, // a head that changes at least visualPct % of the shots (checker/shots.mjs)
+  visualPct: 5, // a recolor is ~60 %, one new streetlight ~3 %; tune with real merges
   reviewHours: 2,
   maxRounds: 2,
   leaseMinutes: 30,
@@ -315,7 +317,9 @@ async function startRound(env, pr) {
   const accounts = await all(env, 'SELECT * FROM accounts WHERE banned = 0');
   // Cold start: the round takes as many reviewers as exist, up to the quorum. It grows by itself
   // as accounts earn reputation through merges. /api/summary shows how many there are.
-  const need = Math.min(RULES.quorum, accounts.filter((a) => a.login !== pr.author && canReview(a, now(env))).length);
+  const visual = (await one(env, 'SELECT pct FROM visuals WHERE pr = ? AND head = ?', pr.number, pr.head))?.pct ?? 0;
+  const quorum = visual >= RULES.visualPct ? RULES.visualQuorum : RULES.quorum;
+  const need = Math.min(quorum, accounts.filter((a) => a.login !== pr.author && canReview(a, now(env))).length);
   const picked = need ? pickReviewers(accounts, pr.author, need, now(env)) : null;
   if (!picked) return false; // no reviewer yet: the cron tries again
   const round = pr.rounds + 1;
@@ -659,6 +663,9 @@ async function webhook(env, req) {
     // The main commit this verdict was computed on (verdict.yml checked it is on main).
     const base = /on main ([0-9a-f]{12,40})/.exec(String(p.description ?? ''))?.[1] ?? '';
     if (p.state === 'success') await run(env, 'INSERT OR REPLACE INTO verdicts (pr, head, base, at) VALUES (?, ?, ?, ?)', pr.number, p.sha, base, t);
+    // How much of the picture this head changes (verdict.yml writes " visual 12.3%").
+    const visual = / visual ([0-9]{1,3}\.[0-9])%/.exec(String(p.description ?? ''))?.[1];
+    if (p.state === 'success' && visual) await run(env, 'INSERT OR REPLACE INTO visuals (pr, head, pct) VALUES (?, ?, ?)', pr.number, p.sha, Number(visual));
     if (p.state === 'success' && pr.state === 'approved') {
       await merge(env, pr.number); // a recheck on the new main came back green
     } else if (p.state === 'success' && pr.state === 'open') {
@@ -863,7 +870,7 @@ async function admin(env, req, path) {
     // leases, pull request records, reviews and every earned point go. Accounts and their keys
     // stay, the event record stays, and the next tick seeds the goals again from goals.json.
     if (b.confirm !== 'start over' || !why) return fail(400, 'need confirm "start over" and why');
-    for (const t of ['votes', 'upvotes', 'reviews', 'rounds', 'verdicts', 'prs', 'leases', 'tasks', 'goals', 'challenges', 'jurors']) await run(env, `DELETE FROM ${t}`);
+    for (const t of ['votes', 'upvotes', 'reviews', 'rounds', 'verdicts', 'prs', 'leases', 'tasks', 'goals', 'challenges', 'jurors', 'visuals']) await run(env, `DELETE FROM ${t}`);
     await run(env, 'UPDATE accounts SET accepted = 0, caught = 0, missed = 0, overturned = 0, bonus = 0');
     await run(env, "DELETE FROM settings WHERE key LIKE 'recheck:%'");
     await event(env, 'admin.season', 'core', '', why);
@@ -935,6 +942,8 @@ async function publicApi(env, path, url) {
       phase: (await setting(env, 'phase')) || null,
       phase_since: Number(await setting(env, 'phase_since')) || null,
       quorum: RULES.quorum,
+      visual_quorum: RULES.visualQuorum,
+      visual_pct: RULES.visualPct,
       github_error: (await setting(env, 'github_error')) || null,
     }, 200, PUBLIC);
   }

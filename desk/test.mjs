@@ -220,7 +220,8 @@ assert.ok(l2);
 await hook('pull_request', { action: 'opened', pull_request: pr(30, 'alice', 'x1', `Lease: ${l2}`) });
 for (const [round, head] of [[1, 'x1'], [2, 'x2']]) {
   if (round === 2) await hook('pull_request', { action: 'synchronize', pull_request: pr(30, 'alice', 'x2') });
-  await hook('status', { context: 'lastgame/verdict', sha: head, state: 'success', description: ok() });
+  await hook('status', { context: 'lastgame/verdict', sha: head, state: 'success', description: ok() + (round === 2 ? ' visual 62.2%' : '') });
+  assert.equal(row('SELECT need FROM rounds WHERE pr = 30 AND round = ?', round).need, round === 2 ? 5 : 3, 'a head that changes the picture draws five');
   const r = db.prepare('SELECT * FROM reviews WHERE pr = 30 AND round = ? AND verdict IS NULL').all(round)[0];
   assert.equal((await call('POST', '/desk/review', r.reviewer, { review: r.id, verdict: 'reject', reason: 'does not do what the task says' })).status, 200);
 }

@@ -93,7 +93,8 @@ Optionally, **shots**: on a pull request the checker also draws main and the
 pull request from fixed views into `shots/` (before, after and diff PNGs) and
 reports `visual_change`, the percentage of pixels that changed. `check.yml`
 uploads them as the `shots` artifact, and the verdict comment and status show
-the number. It never decides the verdict.
+the number. It never decides the verdict, but from `visualPct` (5 %) on the
+desk draws `visualQuorum` (5) reviewers instead of `quorum` (3).
 
 ## Forking it
 
