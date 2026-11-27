@@ -25,8 +25,8 @@ it, what a project has to provide, and how to fork it for other software.
    reviews. A review is overturned through a challenge: for 7 days after a
    merge, an owner with reputation can ask for a revert, and a jury of 5 other
    owners decides. With 4 upholds the desk reverts the change, and every
-   reviewer who accepted it loses reputation. A dismissed challenge costs the
-   challenger the same. Voting, planning tasks, reviewing and challenging all
+   reviewer who accepted it loses reputation. A challenge that more jurors
+   dismiss than uphold costs the challenger the same. Voting, planning tasks, reviewing and challenging all
    require reputation.
 6. **The swarm picks the goals.** Votes cost quadratically and fade over time.
    Each kind of goal has a fixed number of slots. A goal waits out an objection

@@ -398,7 +398,9 @@ await call('POST', '/admin/freeze', 'core', { on: false, why: 'done testing' });
 await tick(env);
 assert.equal(ghCalls('/pulls/99/merge')[0]?.body.sha, 'rv1', 'merged by the desk');
 assert.equal(row('SELECT COUNT(*) AS c FROM reviews WHERE pr = 99').c, 0, 'no review round: the jury decided');
+const authBefore = acc('auth').accepted;
 await hook('pull_request', { action: 'closed', pull_request: pr(99, '', 'rv1', '', { user: bot, merged: true }) });
+assert.equal(acc('auth').accepted, authBefore - 1, 'a merged revert takes back the point the original earned');
 assert.equal(row("SELECT COUNT(*) AS c FROM events WHERE type = 'revert.merged' AND ref = '99'").c, 1);
 assert.equal((await ch('r4', { pr: 99, reason: why })).status, 400, 'a revert cannot be challenged');
 
@@ -419,6 +421,19 @@ assert.equal(jury(c2).length, 0, 'the other seats close');
 assert.equal(ghCalls('/graphql').length, 0, 'nothing is reverted');
 assert.equal(row("SELECT COUNT(*) AS c FROM events WHERE type = 'challenge.dismissed' AND ref = '61'").c, 1);
 assert.equal((await ch('critic', { pr: 62, reason: why })).status, 429, 'one new challenge a day');
+
+// Short of 4, but most of the jury agreed: dismissed, and the challenger does not pay.
+clock += DAY;
+const c2b = (await ch('critic', { pr: 61, reason: why })).data.challenge;
+const seats2 = jury(c2b);
+const critic2 = acc('critic');
+for (const j of seats2.slice(0, 3)) await vote(j, c2b, 'uphold');
+await vote(seats2[3], c2b, 'dismiss');
+assert.equal(state(c2b).state, 'open', 'the last seat could still make it 4');
+await vote(seats2[4], c2b, 'dismiss');
+assert.equal(state(c2b).state, 'dismissed', '3 of 5 is not enough');
+assert.equal(acc('critic').overturned, critic2.overturned, 'no penalty when most of the jury upheld');
+assert.equal(ghCalls('/graphql').length, 0, 'nothing is reverted');
 
 // Cold start: with fewer than 3 jurors the challenge waits for the cron. 3 jurors must all uphold.
 clock += DAY;
@@ -442,7 +457,7 @@ await vote('j3', c3, 'uphold');
 assert.equal(state(c3).state, 'upheld');
 assert.equal(row("SELECT COUNT(*) AS c FROM events WHERE type = 'revert.failed' AND ref = '62'").c, 1, 'a revert GitHub refuses is recorded');
 assert.ok(ghCalls('/issues/62/comments').some((c) => c.body.body.startsWith('**Revert failed:**')), 'and left to the core team on the pull request');
-assert.equal((await call('GET', '/api/challenges')).data.length, 3);
+assert.equal((await call('GET', '/api/challenges')).data.length, 4);
 db.prepare('UPDATE accounts SET banned = 0').run();
 
 // The alpha's way out: a new season keeps accounts and the record, drops everything else.

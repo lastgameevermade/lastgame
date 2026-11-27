@@ -425,7 +425,7 @@ async function challenge(env, a, req) {
   await event(env, 'challenge.opened', a.login, pr.number, reason);
   await comment(env, pr.number, `**Challenge ${id}.** ${a.login} asks the desk to revert this pull request: ${reason}\n\n` +
     `A jury of up to ${RULES.jury} owners who had no part in it decides, each juror within ${RULES.juryHours} h. ` +
-    `${RULES.upholdVotes} of ${RULES.jury} upholds revert it, and every reviewer who accepted it loses ${RULES.overturnPenalty} reputation. Otherwise ${a.login} loses ${RULES.overturnPenalty}.`);
+    `${RULES.upholdVotes} of ${RULES.jury} upholds revert it, and every reviewer who accepted it loses ${RULES.overturnPenalty} reputation. If more jurors dismiss it than uphold it, ${a.login} loses ${RULES.overturnPenalty}.`);
   await drawJury(env, { id, pr: pr.number, challenger: a.login });
   return json({ challenge: id }, 201);
 }
@@ -484,6 +484,8 @@ async function decide(env, id) {
   const waiting = js.filter((j) => j.verdict === null).length;
   if (upheld < c.need && upheld + waiting >= c.need) return;
   const won = upheld >= c.need;
+  // A challenge most of the jury agreed with is no frivolous one, even when it falls short of the threshold.
+  const lost = !won && js.filter((j) => j.verdict === 'dismiss').length > upheld;
   await run(env, 'UPDATE challenges SET state = ?, closed = ? WHERE id = ?', won ? 'upheld' : 'dismissed', now(env), id);
   await run(env, "UPDATE jurors SET verdict = 'expired' WHERE challenge = ? AND verdict IS NULL", id); // seats nobody needs now
   if (won) {
@@ -493,13 +495,13 @@ async function decide(env, id) {
       await run(env, 'UPDATE accounts SET overturned = overturned + 1 WHERE login = ?', r.reviewer);
     }
   }
-  await run(env, `UPDATE accounts SET ${won ? 'caught = caught + 1' : 'overturned = overturned + 1'} WHERE login = ?`, c.challenger);
+  if (won || lost) await run(env, `UPDATE accounts SET ${won ? 'caught = caught + 1' : 'overturned = overturned + 1'} WHERE login = ?`, c.challenger);
   const tally = `${upheld} of ${js.length} jurors upheld, ${c.need} needed`;
   const why = js.filter((j) => j.reason).map((j) => `- ${j.verdict}: ${j.reason}`).join('\n');
   await event(env, won ? 'challenge.upheld' : 'challenge.dismissed', '', c.pr, tally);
   await comment(env, c.pr, won
     ? `**Challenge ${c.id} upheld** (${tally}). The desk reverts this pull request. Every reviewer who accepted it loses ${RULES.overturnPenalty} reputation, ${c.challenger} earns 1.\n\n${why}`
-    : `**Challenge ${c.id} dismissed** (${tally}). It stays merged, and ${c.challenger} loses ${RULES.overturnPenalty} reputation.\n\n${why}`);
+    : `**Challenge ${c.id} dismissed** (${tally}). It stays merged${lost ? `, and ${c.challenger} loses ${RULES.overturnPenalty} reputation` : ''}.\n\n${why}`);
   if (won) await revert(env, c);
 }
 
@@ -635,6 +637,8 @@ async function webhook(env, req) {
       if (pr.merged) {
         await run(env, "UPDATE prs SET state = 'merged', updated = ? WHERE number = ?", t, n);
         await run(env, 'UPDATE accounts SET accepted = accepted + 1 WHERE login = ?', row.author);
+        // A merged revert takes back the point its original earned.
+        if (row.author === DESK) await run(env, 'UPDATE accounts SET accepted = accepted - 1 WHERE login = (SELECT p.author FROM challenges c JOIN prs p ON p.number = c.pr WHERE c.revert = ?)', n);
         if (l) {
           await run(env, "UPDATE tasks SET status = 'done' WHERE id = ?", l.task);
           await run(env, 'UPDATE goals SET last_merge = ? WHERE id = (SELECT goal FROM tasks WHERE id = ?)', t, l.task);

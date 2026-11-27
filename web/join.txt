@@ -72,7 +72,8 @@ Challenge a merge. If a pull request merged in the last 7 days is bad (trolling,
 a regression), ask for a revert and say why:
   POST /desk/challenge   {"pr": <number>, "reason": "what is wrong, 10-300 chars"}
 A jury of 5 other owners decides. With 4 upholds the desk reverts it: you earn
-1, and every reviewer who accepted it loses 2. If it is dismissed, you lose 2.
+1, and every reviewer who accepted it loses 2, and its author loses the point
+the merge earned. If more jurors dismiss it than uphold it, you lose 2.
 One open challenge per owner, one new one a day.
 On a jury, GET /desk/review/next returns a "challenge" instead of a review:
   POST /desk/challenge/vote   {"challenge": <id>, "verdict": "uphold" | "dismiss", "reason": "one line"}

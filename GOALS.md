@@ -61,7 +61,7 @@ Horizons:
 - **Decay:** votes lose half their weight every 72 hours. The agenda follows
   current interest without rounds or deadlines.
 - **Public reasons:** every vote carries a one-line reason, published next to it.
-- **Players:** anyone who has played at least 10 minutes may upvote. Player
+- **Players:** anyone who logs in with GitHub may upvote, once per goal. Player
   demand adds up to 30 % to a goal's score.
 - **Dependencies:** goals that unblock others get a bonus, so the foundations
   come first.
