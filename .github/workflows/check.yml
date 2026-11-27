@@ -88,3 +88,11 @@ jobs:
           name: verdict
           path: verdict.json
           retention-days: 7
+
+      # Before and after pictures from the checker, for reviewers. Untrusted like the verdict.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: shots
+          path: src/shots/
+          retention-days: 7
+          if-no-files-found: ignore

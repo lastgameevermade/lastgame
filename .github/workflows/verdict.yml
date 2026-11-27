@@ -114,10 +114,20 @@ jobs:
             rel=$(gh api "repos/$REPO/compare/$base...$(jq -r .base.ref <<< "$info")" --jq .status 2>/dev/null || true)
             case "$rel" in identical|ahead) on=" on main ${base:0:12}" ;; esac
           fi
-          status "$state" "$verdict at stage $stage$on"
+          # How much of the picture the change alters (checker/shots.mjs). Informs, never decides.
+          visual=$(jq -r '.metrics.visual_change // "" | tostring' v/verdict.json)
+          [[ "$visual" =~ ^[0-9]{1,3}\.[0-9]$ ]] || visual=""
+          status "$state" "$verdict at stage $stage$on${visual:+ visual $visual%}"
 
-          body=$(printf '<!-- lastgame-verdict -->\n**%s** at stage `%s` for %s\n\n```text\n%s\n```\n\n[Checker run](%s)\n' \
-            "$verdict" "$stage" "${HEAD_SHA:0:7}" "${reasons:-no findings}" "$RUN_URL")
+          shots=""
+          if [ -n "$visual" ]; then
+            art=$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" --jq '.artifacts[] | select(.name == "shots") | .id' | head -n 1 || true)
+            url="$RUN_URL"
+            [[ "$art" =~ ^[0-9]{1,15}$ ]] && url="https://github.com/$REPO/actions/runs/$RUN_ID/artifacts/$art"
+            shots="Visual change: $visual % of the picture ([before and after]($url))"$'\n\n'
+          fi
+          body=$(printf '<!-- lastgame-verdict -->\n**%s** at stage `%s` for %s\n\n```text\n%s\n```\n\n%s[Checker run](%s)\n' \
+            "$verdict" "$stage" "${HEAD_SHA:0:7}" "${reasons:-no findings}" "$shots" "$RUN_URL")
           id=$(gh api --paginate "repos/$REPO/issues/$pr/comments" \
             --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- lastgame-verdict -->"))) | .id' | head -n 1)
           if [ -n "$id" ]; then
