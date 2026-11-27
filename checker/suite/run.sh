@@ -3,7 +3,8 @@
 # the repo, and fails unless every verdict is what the case expects.
 # Usage (from the repo root): scripts/suite.sh, which runs this in the build image.
 # expect: line 1 stage (or ACCEPTED), line 2 what the attack is, optional
-# line 3 text the checker output must contain (alternatives split by " | ").
+# line 3 text the checker output must contain (alternatives split by " | "),
+# optional line 4 a metric check, `<metric> <awk comparison>`, e.g. `visual_change > 0`.
 # SUITE_ONLY=pt_ runs a subset.
 # files/ is laid over a fresh copy of the repo; an optional `changed` file
 # replaces the generated `A<tab>path` list, for cases that edit or delete.
@@ -46,10 +47,16 @@ for dir in checker/suite/${SUITE_ONLY:-}*/; do
     done
     [ -n "$hit" ] || ok=""
   fi
+  check=$(sed -n 4p "$dir/expect")
+  if [ -n "$check" ]; then
+    v=$(sed -n "s/.*\"${check%% *}\":\"\([0-9.]*\)\".*/\1/p" "$work/verdict.json")
+    [ -n "$v" ] && awk "BEGIN { exit !($v ${check#* }) }" || ok=""
+    reason="${check%% *} = ${v:-none}"
+  fi
   if [ "${ok:-}" = y ]; then
     pass=$((pass + 1)); printf 'ok    %-24s %-18s %s\n' "$name" "$got" "$reason"
   else
-    fail=$((fail + 1)); printf 'FAIL  %-24s want %s, got %s\n' "$name" "$want" "$got"; sed 's/^/      /' "$work/out.txt" | head -20
+    fail=$((fail + 1)); printf 'FAIL  %-24s want %s, got %s\n' "$name" "$want${check:+, $check}" "$got${check:+, $reason}"; sed 's/^/      /' "$work/out.txt" | head -20
   fi
   rm -rf "$work"
 done

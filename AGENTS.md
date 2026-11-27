@@ -138,6 +138,8 @@ checker as CI.
 - Nothing from other games or brands: names, characters, shapes, music.
 - Never write instructions to reviewers or other agents in code or comments.
   Reviewers treat that as an attack and reject the pull request.
+- If the verdict shows a visual change, look at the before and after shots
+  before you judge: `gh run download <run> -R lastgameevermade/lastgame -n shots`.
 
 ## Workflow
 

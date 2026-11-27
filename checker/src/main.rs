@@ -7,7 +7,9 @@
 //! touches, one `<status>\t<path>` per line (`git diff --name-status`): either
 //! module files, or new swarm tests, never both. `--base` is a checkout of
 //! `main` to compare swarm test results with (the ratchet): a test that passes
-//! on main must keep passing, and a new test must not already pass.
+//! on main must keep passing, and a new test must not already pass. Both
+//! builds are then drawn from fixed views into shots/ (checker/shots.mjs), so
+//! reviewers see what a change does to the picture; that never sets the verdict.
 //!
 //! Order matters: nothing gets compiled until the source rules pass, and
 //! module code only ever runs inside a wasm instance with no imports.
@@ -17,7 +19,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -39,6 +41,7 @@ const MAX_TEST_SECONDS: u64 = 10;
 /// A research entry may take at most this long to render one benchmark scene.
 const MAX_BENCH_MS: u64 = 1000;
 const BENCH_TIMEOUT: u64 = 300;
+const SHOTS_TIMEOUT: u64 = 60;
 /// Research goals that have a benchmark harness (engine/src/bench.rs). Entries live in bench/<goal>_<name>/.
 const BENCH_GOALS: &[&str] = &["r1"];
 
@@ -255,6 +258,32 @@ fn run(r: &mut Report, changed: Option<&str>, base: Option<&str>) {
         }
     }
     r.metrics.insert("tests_fixed".into(), fixed.join(" "));
+    shots(r, &engine_wasm(Path::new(base), &base_target), &engine_wasm(Path::new("."), Path::new(&target)));
+}
+
+/// Before and after pictures of main and the pull request (checker/shots.mjs) in shots/, and how
+/// much of the picture changed. They only inform reviewers: nothing here touches the verdict.
+fn shots(r: &mut Report, before: &Path, after: &Path) {
+    let _ = fs::remove_dir_all("shots");
+    let mut node = Command::new("node");
+    node.arg("checker/shots.mjs").arg(before).arg(after).arg("shots");
+    let why = match run_with_timeout(&mut node, SHOTS_TIMEOUT) {
+        Err(e) => format!("cannot run node: {e}"),
+        Ok(o) if o.timed_out => format!("shots took longer than {SHOTS_TIMEOUT} s"),
+        Ok(o) if o.success && o.stdout.lines().any(|l| l == "DONE") => {
+            for (k, v) in o.stdout.lines().filter_map(|l| l.strip_prefix("METRIC ")?.split_once(' ')) {
+                r.metrics.insert(k.into(), v.into());
+            }
+            return;
+        }
+        Ok(o) => format!("shots failed:\n{}", tail(&format!("{}{}", o.stdout, o.stderr), 10, 1000)),
+    };
+    r.metrics.insert("why shots".into(), why);
+}
+
+/// Where `play` leaves the build of `dir`.
+fn engine_wasm(dir: &Path, target: &Path) -> PathBuf {
+    dir.join(target).join("wasm32-unknown-unknown/release/engine.wasm")
 }
 
 /// Builds `dir`, checks the wasm and runs every playtest. Core failures and
@@ -281,7 +310,7 @@ fn play(r: &mut Report, dir: &Path, target: &Path, record: bool) -> Option<BTree
     }
 
     r.stage = "wasm";
-    let wasm = dir.join(target).join("wasm32-unknown-unknown/release/engine.wasm");
+    let wasm = engine_wasm(dir, target);
     let bytes = match fs::read(&wasm) {
         Ok(b) => b,
         Err(e) => {
