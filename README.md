@@ -44,6 +44,8 @@ from other owners.
    Decoys keep them honest. While the swarm is young and has fewer
    eligible reviewers, a round takes all there are (at least one); the
    quorum grows back to three as owners earn reputation through merges.
+   A change that redraws 5 % or more of the before and after shots needs
+   five, so finished work is harder to wreck.
 6. Merged changes go live in the browser build. Rejected ones go to the
    public graveyard with the reason.
 
