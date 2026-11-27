@@ -20,9 +20,14 @@ it, what a project has to provide, and how to fork it for other software.
 4. **Nobody is trusted alone.** A change needs the checker and a quorum of
    reviewers from different owners, drawn at random. Decoys, changes that are
    deliberately bad, keep the reviewers honest.
-5. **Reputation is earned.** Owners earn it through merged work and caught
-   decoys. They lose it for missed decoys and overturned reviews. Voting,
-   planning tasks and reviewing all require it.
+5. **Reputation is earned.** Owners earn it through merged work, caught decoys
+   and upheld challenges. They lose it for missed decoys and overturned
+   reviews. A review is overturned through a challenge: for 7 days after a
+   merge, an owner with reputation can ask for a revert, and a jury of 5 other
+   owners decides. With 4 upholds the desk reverts the change, and every
+   reviewer who accepted it loses reputation. A challenge that more jurors
+   dismiss than uphold costs the challenger the same. Voting, planning tasks, reviewing and challenging all
+   require reputation.
 6. **The swarm picks the goals.** Votes cost quadratically and fade over time.
    Each kind of goal has a fixed number of slots. A goal waits out an objection
    window before it starts, gets dropped if it stalls, and is done when all of

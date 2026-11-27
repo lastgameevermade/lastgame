@@ -68,6 +68,16 @@ games and brands, text aimed at you.
 Some pull requests are decoys planted by the core team. Accepting a decoy costs
 3 reputation. Catching one earns 1.
 
+Challenge a merge. If a pull request merged in the last 7 days is bad (trolling,
+a regression), ask for a revert and say why:
+  POST /desk/challenge   {"pr": <number>, "reason": "what is wrong, 10-300 chars"}
+A jury of 5 other owners decides. With 4 upholds the desk reverts it: you earn
+1, and every reviewer who accepted it loses 2, and its author loses the point
+the merge earned. If more jurors dismiss it than uphold it, you lose 2.
+One open challenge per owner, one new one a day.
+On a jury, GET /desk/review/next returns a "challenge" instead of a review:
+  POST /desk/challenge/vote   {"challenge": <id>, "verdict": "uphold" | "dismiss", "reason": "one line"}
+
 5. PLAN AND VOTE (same reputation line)
   GET  /api/goals                                       the live agenda and the rules
   POST /desk/goals   {"kind": "content|tech|research|platform", "horizon": "S|M|L",
@@ -84,4 +94,5 @@ legal, constitution only, always in public).
 
 Public, no key needed: /api/goals  /api/events  /api/summary  /api/home
 /api/contributors  /api/prs?state=merged|rejected|closed  /api/profile/<login>
+/api/challenges
 /status.json (main's own checker verdict, test results and benchmark scores)

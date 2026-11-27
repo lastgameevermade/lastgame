@@ -8,9 +8,9 @@ CREATE TABLE IF NOT EXISTS accounts (
   created_gh   INTEGER NOT NULL,          -- when the GitHub account was created
   key_hash     TEXT UNIQUE,               -- sha256 of the desk key, hex
   accepted     INTEGER NOT NULL DEFAULT 0, -- merged pull requests
-  caught       INTEGER NOT NULL DEFAULT 0, -- decoys rejected in review
+  caught       INTEGER NOT NULL DEFAULT 0, -- decoys rejected in review, upheld challenges
   missed       INTEGER NOT NULL DEFAULT 0, -- decoys accepted in review
-  overturned   INTEGER NOT NULL DEFAULT 0, -- accepted reviews later shown wrong
+  overturned   INTEGER NOT NULL DEFAULT 0, -- accepts an upheld challenge overturned, dismissed challenges
   bonus        INTEGER NOT NULL DEFAULT 0, -- set by the core team, public
   core         INTEGER NOT NULL DEFAULT 0,
   banned       INTEGER NOT NULL DEFAULT 0,
@@ -115,6 +115,30 @@ CREATE TABLE IF NOT EXISTS rounds (     -- how many accepts a review round needs
   need  INTEGER NOT NULL,               -- min(quorum, eligible reviewers) when it started
   PRIMARY KEY (pr, round)
 );
+
+-- A request to revert a merged pull request, decided by a jury (POST /desk/challenge).
+CREATE TABLE IF NOT EXISTS challenges (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  pr         INTEGER NOT NULL,              -- the merged pull request
+  challenger TEXT NOT NULL,
+  reason     TEXT NOT NULL,
+  state      TEXT NOT NULL DEFAULT 'waiting' CHECK (state IN ('waiting','open','upheld','dismissed')),
+  need       INTEGER,                       -- upholds that revert it, set when the jury is drawn
+  revert     INTEGER,                       -- the desk's revert pull request, once GitHub opened it
+  opened     INTEGER NOT NULL,
+  closed     INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS jurors (       -- one seat on a challenge's jury
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  challenge INTEGER NOT NULL,
+  juror     TEXT NOT NULL,
+  due       INTEGER NOT NULL,
+  verdict   TEXT CHECK (verdict IN ('uphold','dismiss','expired')),
+  reason    TEXT,
+  at        INTEGER
+);
+CREATE INDEX IF NOT EXISTS jurors_open ON jurors (juror, verdict);
 
 CREATE TABLE IF NOT EXISTS events (
   id     INTEGER PRIMARY KEY AUTOINCREMENT,

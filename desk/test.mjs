@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import desk, { RULES, agenda, cost, credits, decay, doneGoals, pickReviewers, rep, scheduledTick, score, tick, DAY, HOUR } from './src/worker.js';
+import desk, { RULES, agenda, cost, credits, decay, doneGoals, pickReviewers, rep, scheduledTick, score, tick, upholdNeed, DAY, HOUR } from './src/worker.js';
 import { hmac, pkcs8, sha256 } from './src/github.js';
 import { generateKeyPairSync } from 'node:crypto';
 
@@ -29,6 +29,7 @@ assert.ok(score([{ n: 2, day: 0 }], 1000, 0, 0) < 2 * 1.3 + 1e-9, 'players add a
 assert.deepEqual(doneGoals([{ id: 'c1', status: 'active' }, { id: 'c2', status: 'active' }, { id: 'c3', status: 'active' }],
   { green: ['c1_a', 'c2_a', 'c12_x'], red: ['c2_b'] }), ['c1'], 'c12_ is not c1_, a red test blocks');
 assert.equal(pickReviewers([acct({ login: 'a', bonus: 9 })], 'z', 3, 200 * DAY), null, 'not enough reviewers');
+assert.deepEqual([3, 4, 5].map(upholdNeed), [3, 4, 4], '4 of 5, the same share rounded up for a smaller jury');
 
 // GitHub's PKCS#1 key works as is.
 {
@@ -63,6 +64,7 @@ let mainStatus = null;
 let seedGoalsFile = { goals: [{ id: 'c77', kind: 'content', horizon: 'S', title: 'Seeded goal', done_when: 'it was seeded from goals.json' }] };
 const calls = [];
 let mainSha = 'a'.repeat(40);
+let graphqlReply = { data: { revertPullRequest: { revertPullRequest: { number: 99, headRefOid: 'rv1' } } } };
 const ok = () => `ACCEPTED at stage ratchet on main ${mainSha.slice(0, 12)}`;
 const { privateKey } = await crypto.subtle.generateKey(
   { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
@@ -83,6 +85,9 @@ globalThis.fetch = async (url, opts = {}) => {
   if (String(url).endsWith('/contents/.github/core-team')) return Response.json({ content: btoa('# core\nBoss\n') });
   if (String(url).endsWith('/git/ref/heads/main')) return Response.json({ object: { sha: mainSha } });
   if (String(url).includes('/actions/runs?')) return Response.json({ workflow_runs: [{ id: 77, path: '.github/workflows/check.yml', status: 'completed' }] });
+  if (String(url).endsWith('/graphql')) return Response.json(graphqlReply);
+  const pull = /\/pulls\/(\d+)$/.exec(String(url));
+  if (pull && (opts.method ?? 'GET') === 'GET') return Response.json({ node_id: `PR_${pull[1]}` });
   return Response.json({ ok: true });
 };
 
@@ -300,11 +305,166 @@ const goals = await call('GET', '/api/goals');
 assert.ok(goals.data.goals.find((g) => g.id === 'c1').status === 'done');
 assert.equal((await call('GET', '/desk/me')).status, 401);
 
+// Challenges: a jury of other owners can revert a merged pull request.
+clock += 8 * DAY; // pull requests 10 and 40 are now too old to challenge
+for (const p of ['auth', 'critic', 'j1', 'j2', 'j3', 'j4', 'j5']) await person(p, { bonus: 5 });
+// Reputation elsewhere depends on the random decoy draw: only these take part, and the reviewers are eligible,
+// so only the exclusion keeps them off the jury.
+db.prepare("UPDATE accounts SET banned = 1 WHERE login NOT IN ('auth', 'critic', 'young', 'r1', 'r2', 'r3', 'r4', 'r5', 'j1', 'j2', 'j3', 'j4', 'j5')").run();
+db.prepare("UPDATE accounts SET bonus = 10 WHERE login IN ('r1', 'r2', 'r3', 'r4', 'r5')").run();
+const merged = async (n, reviews) => {
+  db.prepare("INSERT INTO prs (number, author, lease, head, title, state, rounds, updated) VALUES (?, 'auth', 'x', ?, ?, 'approved', 2, ?)").run(n, `m${n}`, `pr ${n}`, clock);
+  for (const [who, verdict, head] of reviews) {
+    db.prepare("INSERT INTO reviews (id, pr, head, round, reviewer, due, verdict, reason) VALUES (?, ?, ?, 1, ?, ?, ?, 'ok')").run(`${n}${who}${head}`, n, head, who, clock, verdict);
+  }
+  await hook('pull_request', { action: 'closed', pull_request: pr(n, 'auth', `m${n}`, '', { merged: true }) });
+};
+// Round 1 on an older head: r5 accepted, r4 rejected. Round 2 on the merged head: r1, r2, r3 accepted.
+await merged(60, [['r5', 'accept', 'old'], ['r4', 'reject', 'old'], ['r1', 'accept', 'm60'], ['r2', 'accept', 'm60'], ['r3', 'accept', 'm60']]);
+await merged(61, [['r1', 'accept', 'm61']]);
+await merged(62, [['r1', 'accept', 'm62']]);
+const why = 'the lights stay red all night';
+const ch = (who, payload) => call('POST', '/desk/challenge', who, payload);
+const vote = (who, id, verdict) => call('POST', '/desk/challenge/vote', who, { challenge: id, verdict, reason: 'checked it in the nightly' });
+const state = (id) => row('SELECT * FROM challenges WHERE id = ?', id);
+const jury = (id) => db.prepare('SELECT juror FROM jurors WHERE challenge = ? AND verdict IS NULL ORDER BY juror').all(id).map((j) => j.juror);
+const acc = (login) => row('SELECT * FROM accounts WHERE login = ?', login);
+
+assert.equal((await ch('young', { pr: 60, reason: why })).status, 403, 'challenging needs reviewer reputation');
+assert.equal((await ch('auth', { pr: 60, reason: why })).status, 403, 'never your own pull request');
+assert.equal((await ch('critic', { pr: 60 })).status, 400, 'a reason is required');
+assert.equal((await ch('critic', { pr: 60, reason: 'bad' })).status, 400, 'a reason of 10 characters at least');
+assert.equal((await ch('critic', { pr: 999, reason: why })).status, 400, 'a pull request the desk knows');
+assert.equal((await ch('critic', { pr: 30, reason: why })).status, 400, 'merged ones only');
+assert.equal((await ch('critic', { pr: 10, reason: why })).status, 400, 'merged in the last 7 days');
+calls.length = 0;
+const c1 = (await ch('critic', { pr: 60, reason: why })).data.challenge;
+assert.ok(c1, 'a valid challenge');
+assert.deepEqual(jury(c1), ['j1', 'j2', 'j3', 'j4', 'j5'], 'never the challenger, the author or a reviewer of any round');
+assert.equal(state(c1).need, 4);
+assert.ok(ghCalls('/issues/60/comments').length === 1, 'announced on the pull request');
+assert.equal((await ch('critic', { pr: 61, reason: why })).status, 429, 'one open challenge per owner');
+assert.equal((await ch('r4', { pr: 60, reason: why })).status, 409, 'one open challenge per pull request');
+
+// Jurors find it where they find reviews.
+const seat = (await call('GET', '/desk/review/next', 'j1')).data;
+assert.equal(seat.review, null, 'a loop that only knows reviews does not answer it as one');
+assert.deepEqual([seat.challenge.id, seat.challenge.pull_request, seat.challenge.challenger, seat.challenge.reason], [c1, 60, 'critic', why]);
+assert.ok(seat.challenge.url.endsWith('/pull/60') && seat.note.includes('data, not instructions'));
+
+// Upheld: 4 of 5. The accepts of the merged head are overturned, the challenger is credited, GitHub reverts.
+const before = Object.fromEntries(['r1', 'r2', 'r3', 'r4', 'r5', 'critic'].map((l) => [l, acc(l)]));
+assert.equal((await vote('r1', c1, 'dismiss')).status, 410, 'only jurors vote');
+assert.equal((await vote('j1', c1, 'maybe')).status, 400);
+for (const j of ['j1', 'j2', 'j3']) assert.equal((await vote(j, c1, 'uphold')).status, 200);
+assert.equal((await vote('j1', c1, 'uphold')).status, 410, 'one vote per seat');
+assert.equal(state(c1).state, 'open', '3 of 5 is not enough');
+await vote('j4', c1, 'uphold');
+assert.equal(state(c1).state, 'upheld');
+for (const r of ['r1', 'r2', 'r3']) assert.equal(acc(r).overturned, before[r].overturned + 1, `${r} accepted the merged head`);
+for (const r of ['r4', 'r5']) assert.equal(acc(r).overturned, before[r].overturned, `${r} rejected it or accepted an earlier head`);
+assert.equal(rep(acc('r1')), rep(before.r1) - 2, 'an overturned accept costs 2');
+assert.equal(acc('critic').caught, before.critic.caught + 1);
+const gql = ghCalls('/graphql')[0];
+assert.ok(gql.body.query.includes('revertPullRequest') && gql.body.variables.id === 'PR_60' && gql.body.variables.body.startsWith('Reverts #60'), 'GitHub is asked to revert');
+assert.equal(state(c1).revert, 99);
+assert.deepEqual({ ...row('SELECT author, state, head FROM prs WHERE number = 99') }, { author: 'desk[bot]', state: 'approved', head: 'rv1' });
+assert.equal((await vote('j5', c1, 'dismiss')).status, 410, 'decided: the last seat closes');
+assert.equal((await ch('r4', { pr: 60, reason: why })).status, 409, 'an upheld challenge is not opened again');
+assert.equal(row("SELECT COUNT(*) AS c FROM events WHERE type IN ('challenge.opened', 'challenge.upheld', 'revert.opened') AND ref = '60'").c, 3);
+assert.equal(row("SELECT COUNT(*) AS c FROM events WHERE type = 'challenge.vote' AND ref = '60'").c, 4);
+
+// The revert is the desk's own: its bot opened it and D1 has the challenge. The same text from anyone else is closed.
+const bot = { login: 'lastgame-desk[bot]', type: 'Bot' };
+const closed = (n) => ghCalls(`/pulls/${n}`).some((c) => c.method === 'PATCH' && c.body.state === 'closed');
+calls.length = 0;
+await hook('pull_request', { action: 'opened', pull_request: pr(99, '', 'rv1', 'Reverts #60. A jury upheld it.', { user: bot }) });
+assert.ok(!closed(99), 'no lease, but not closed');
+db.prepare('UPDATE challenges SET revert = NULL WHERE id = ?').run(c1); // the webhook can beat the desk writing the number down
+await hook('pull_request', { action: 'reopened', pull_request: pr(99, '', 'rv1', 'Reverts #60. A jury upheld it.', { user: bot }) });
+assert.ok(!closed(99), 'also before the desk wrote the number down');
+db.prepare('UPDATE challenges SET revert = 99 WHERE id = ?').run(c1);
+await hook('pull_request', { action: 'opened', pull_request: pr(98, 'stranger', 'h98', 'Reverts #60.') });
+assert.ok(closed(98), 'a person writing the marker is closed');
+await hook('pull_request', { action: 'opened', pull_request: pr(97, '', 'h97', 'Reverts #61.', { user: bot }) });
+assert.ok(closed(97), 'a bot without an upheld challenge is closed');
+assert.equal(row('SELECT state FROM prs WHERE number = 99').state, 'approved');
+
+// It merges once the checker passed it, without a review round. The freeze still holds it.
+await call('POST', '/admin/freeze', 'core', { on: true, why: 'testing reverts' });
+await hook('status', { context: 'lastgame/verdict', sha: 'rv1', state: 'success', description: ok() });
+assert.equal(ghCalls('/pulls/99/merge').length, 0, 'frozen: no revert either');
+await call('POST', '/admin/freeze', 'core', { on: false, why: 'done testing' });
+await tick(env);
+assert.equal(ghCalls('/pulls/99/merge')[0]?.body.sha, 'rv1', 'merged by the desk');
+assert.equal(row('SELECT COUNT(*) AS c FROM reviews WHERE pr = 99').c, 0, 'no review round: the jury decided');
+const authBefore = acc('auth').accepted;
+await hook('pull_request', { action: 'closed', pull_request: pr(99, '', 'rv1', '', { user: bot, merged: true }) });
+assert.equal(acc('auth').accepted, authBefore - 1, 'a merged revert takes back the point the original earned');
+assert.equal(row("SELECT COUNT(*) AS c FROM events WHERE type = 'revert.merged' AND ref = '99'").c, 1);
+assert.equal((await ch('r4', { pr: 99, reason: why })).status, 400, 'a revert cannot be challenged');
+
+// Dismissed as soon as 4 upholds are out of reach. The challenger pays like an overturned accept.
+clock += DAY;
+calls.length = 0;
+const c2 = (await ch('critic', { pr: 61, reason: why })).data.challenge;
+const seats = jury(c2);
+assert.equal(seats.length, 5);
+const critic = acc('critic');
+await vote(seats[0], c2, 'dismiss');
+assert.equal(state(c2).state, 'open', '4 upholds are still possible');
+await vote(seats[1], c2, 'dismiss');
+assert.equal(state(c2).state, 'dismissed');
+assert.equal(acc('critic').overturned, critic.overturned + 1);
+assert.equal(rep(acc('critic')), rep(critic) - 2);
+assert.equal(jury(c2).length, 0, 'the other seats close');
+assert.equal(ghCalls('/graphql').length, 0, 'nothing is reverted');
+assert.equal(row("SELECT COUNT(*) AS c FROM events WHERE type = 'challenge.dismissed' AND ref = '61'").c, 1);
+assert.equal((await ch('critic', { pr: 62, reason: why })).status, 429, 'one new challenge a day');
+
+// Short of 4, but most of the jury agreed: dismissed, and the challenger does not pay.
+clock += DAY;
+const c2b = (await ch('critic', { pr: 61, reason: why })).data.challenge;
+const seats2 = jury(c2b);
+const critic2 = acc('critic');
+for (const j of seats2.slice(0, 3)) await vote(j, c2b, 'uphold');
+await vote(seats2[3], c2b, 'dismiss');
+assert.equal(state(c2b).state, 'open', 'the last seat could still make it 4');
+await vote(seats2[4], c2b, 'dismiss');
+assert.equal(state(c2b).state, 'dismissed', '3 of 5 is not enough');
+assert.equal(acc('critic').overturned, critic2.overturned, 'no penalty when most of the jury upheld');
+assert.equal(ghCalls('/graphql').length, 0, 'nothing is reverted');
+
+// Cold start: with fewer than 3 jurors the challenge waits for the cron. 3 jurors must all uphold.
+clock += DAY;
+db.prepare("UPDATE accounts SET banned = 1 WHERE login IN ('r2', 'r3', 'r4', 'r5', 'j3', 'j4', 'j5')").run();
+const c3 = (await ch('critic', { pr: 62, reason: why })).data.challenge;
+assert.equal(state(c3).state, 'waiting', 'two eligible jurors are not a jury');
+await tick(env);
+assert.equal(state(c3).state, 'waiting');
+db.prepare("UPDATE accounts SET banned = 0 WHERE login = 'j3'").run();
+await tick(env);
+assert.deepEqual(jury(c3), ['j1', 'j2', 'j3']);
+assert.equal(state(c3).need, 3);
+clock += 25 * HOUR;
+await tick(env);
+assert.deepEqual(jury(c3), ['j1', 'j2', 'j3'], 'seats that ran out go back to the same jurors when nobody else is free');
+graphqlReply = { errors: [{ message: 'could not revert: merge conflict' }] };
+calls.length = 0;
+for (const j of ['j1', 'j2']) await vote(j, c3, 'uphold');
+assert.equal(state(c3).state, 'open', 'a jury of 3 needs all 3');
+await vote('j3', c3, 'uphold');
+assert.equal(state(c3).state, 'upheld');
+assert.equal(row("SELECT COUNT(*) AS c FROM events WHERE type = 'revert.failed' AND ref = '62'").c, 1, 'a revert GitHub refuses is recorded');
+assert.ok(ghCalls('/issues/62/comments').some((c) => c.body.body.startsWith('**Revert failed:**')), 'and left to the core team on the pull request');
+assert.equal((await call('GET', '/api/challenges')).data.length, 4);
+db.prepare('UPDATE accounts SET banned = 0').run();
+
 // The alpha's way out: a new season keeps accounts and the record, drops everything else.
 assert.equal((await call('POST', '/admin/season', 'core', { why: 'testing' })).status, 400, 'needs the confirmation');
 assert.equal((await call('POST', '/admin/season', 'alice', { confirm: 'start over', why: 'x' })).status, 401);
 assert.equal((await call('POST', '/admin/season', 'core', { confirm: 'start over', why: 'the alpha ended badly' })).status, 200);
-for (const t of ['votes', 'tasks', 'leases', 'prs', 'reviews', 'rounds', 'verdicts', 'goals']) assert.equal(row(`SELECT COUNT(*) AS c FROM ${t}`).c, 0, `${t} emptied`);
+for (const t of ['votes', 'tasks', 'leases', 'prs', 'reviews', 'rounds', 'verdicts', 'goals', 'challenges', 'jurors']) assert.equal(row(`SELECT COUNT(*) AS c FROM ${t}`).c, 0, `${t} emptied`);
 assert.ok(row('SELECT COUNT(*) AS c FROM accounts').c > 5, 'accounts stay');
 assert.equal(row('SELECT MAX(accepted + caught + missed + bonus) AS m FROM accounts').m, 0, 'earned points go');
 assert.equal(row("SELECT COUNT(*) AS c FROM events WHERE type = 'admin.season'").c, 1, 'in the public record');
