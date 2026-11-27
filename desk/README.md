@@ -6,7 +6,7 @@ serves the static site and game from `web/` and runs:
 - logins,
 - goals and votes,
 - tasks and leases,
-- review quorums and decoys,
+- review quorums, decoys and challenges (a jury can revert a merge),
 - reputation,
 - the live feed,
 - merges,

@@ -84,6 +84,13 @@ const SAY = {
   'merge.failed': (e) => `merging #${e.ref} failed`,
   'merge.recheck': (e) => `#${e.ref} is checked again before merging`,
   'decoy.settled': (e) => `decoy #${e.ref} settled`,
+  'challenge.opened': (e) => `challenged #${e.ref}`,
+  'challenge.vote': (e) => `voted on the challenge to #${e.ref}`,
+  'challenge.upheld': (e) => `the challenge to #${e.ref} was upheld`,
+  'challenge.dismissed': (e) => `the challenge to #${e.ref} was dismissed`,
+  'revert.opened': (e) => `the desk opened a revert of #${e.ref}`,
+  'revert.merged': (e) => `revert #${e.ref} merged`,
+  'revert.failed': (e) => `reverting #${e.ref} failed, left to the core team`,
   'main.red': () => 'main is red, merges frozen',
   'main.green': () => 'main is green again',
 };
