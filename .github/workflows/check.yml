@@ -47,6 +47,7 @@ jobs:
         env:
           AUTHOR: ${{ github.event.pull_request.user.login }}
           ASSOC: ${{ github.event.pull_request.author_association }}
+          BODY: ${{ github.event.pull_request.body }}
         run: |
           cp changed.txt src/changed.txt
           # Core team pull requests may touch core paths. Who is core comes from main
@@ -58,6 +59,8 @@ jobs:
           else
             case "$ASSOC" in OWNER|MEMBER) args="" ;; esac
           fi
+          # With a desk lease it is a swarm change, whoever opens it: the swarm's rules apply.
+          if [ "$(jq -rn --arg b "$BODY" '$b | test("Lease:\\s*[0-9a-f]{12}")')" = true ]; then args="--changed changed.txt"; fi
           echo "core=$([ -z "$args" ] && echo yes || echo no)" >> "$GITHUB_ENV"
           docker run --rm --network none -v "$PWD/src:/src" -v "$PWD/base:/base" lastgame-build sh -c \
             "cargo build -q --release --locked --offline -p checker && target/release/checker --base /base --out verdict.json $args" || true

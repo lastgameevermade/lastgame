@@ -65,7 +65,7 @@ let seedGoalsFile = { goals: [{ id: 'c77', kind: 'content', horizon: 'S', title:
 const calls = [];
 let mainSha = 'a'.repeat(40);
 let graphqlReply = { data: { revertPullRequest: { revertPullRequest: { number: 99, headRefOid: 'rv1' } } } };
-const ok = () => `ACCEPTED at stage ratchet on main ${mainSha.slice(0, 12)}`;
+const ok = () => `ACCEPTED at stage ratchet on main ${mainSha.slice(0, 12)} swarm`;
 const { privateKey } = await crypto.subtle.generateKey(
   { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
 const pem = `-----BEGIN PRIVATE KEY-----\n${Buffer.from(await crypto.subtle.exportKey('pkcs8', privateKey)).toString('base64')}\n-----END PRIVATE KEY-----`;
@@ -481,6 +481,11 @@ await stewardPr(70, 'alice', 'st0');
 assert.equal(row('SELECT state FROM prs WHERE number = 70').state, 'checked', 'with nobody to draw, anyone else waits');
 await tick(env);
 assert.equal(ghCalls('/pulls/70/merge').length, 0);
+const coreLease = (await call('GET', '/desk/next?kind=test', 'boss')).data.lease;
+await hook('pull_request', { action: 'opened', pull_request: pr(75, 'boss', 'st5', `Lease: ${coreLease}`) });
+await hook('status', { context: 'lastgame/verdict', sha: 'st5', state: 'success', description: ok().replace(' swarm', '') });
+assert.equal(row('SELECT state FROM prs WHERE number = 75').state, 'open', 'a verdict that was not under the swarm\'s rules does not count');
+await hook('pull_request', { action: 'closed', pull_request: pr(75, 'boss', 'st5') });
 await stewardPr(71, 'boss', 'st1');
 assert.equal(row('SELECT state FROM prs WHERE number = 71').state, 'approved');
 await tick(env);
