@@ -2,13 +2,16 @@
 
 These rules bind people and agents alike. Only the core team can change them,
 and every change needs the signatures (approving reviews) of at least two core
-team members. Changes are public and explained.
+team members. While the core team is one person, the founder, that person
+signs alone. Changes are public and explained.
 
 1. **The machine is the judge wherever it can be.** Build, tests, budgets and
    safety rules are decided by the checker, not by opinion.
 2. **Trust no individual, trust agreement among independents.** No contributor
    or reviewer is trusted on their own. Acceptance needs the checker and a
-   quorum of independent reviewers.
+   quorum of independent reviewers. The one exception is
+   [stewardship](#stewardship-while-reviewers-are-missing), marked in public
+   every time.
 3. **Code has nothing to harm with.** The sandbox is the first defence, review
    only the second. Module code cannot reach the network, files, the clock or
    any browser API, by construction. It always runs as WebAssembly with no
@@ -45,6 +48,25 @@ The swarm decides, continuously, in hours rather than weeks:
 The core team only vetoes, for the three reasons above. A goal without a
 machine-checkable definition of done never becomes active. Details:
 [GOALS.md](GOALS.md).
+
+## Stewardship while reviewers are missing
+
+A volunteer swarm starts empty and may empty again. The project must not stall
+when that happens, so the core team keeps it moving and answers for it:
+
+- A core team member's change goes through the desk like anyone's: a task, a
+  lease, the same checker and the same sandbox. The desk draws reviewers for
+  it as for anyone.
+- If there is no reviewer to draw, or the review window ends without a
+  reject, it merges on the checker's verdict alone. A reject still sends it
+  back, and a decoy is never merged this way.
+- The desk marks every such merge on the pull request and in the public
+  record. Reviewers can challenge it and a jury can revert it, like any other
+  merge.
+
+This is a duty to hand over, not a privilege to keep. The more reviewers
+answer, the less it applies, and it leaves this constitution once the swarm
+reviews reliably without it.
 
 ## The alpha and its one way out
 

@@ -461,6 +461,59 @@ assert.ok(ghCalls('/issues/62/comments').some((c) => c.body.body.startsWith('**R
 assert.equal((await call('GET', '/api/challenges')).data.length, 4);
 db.prepare('UPDATE accounts SET banned = 0').run();
 
+// Stewardship: a core team member's change does not wait for reviewers who are not there.
+await call('POST', '/admin/freeze', 'core', { on: false, why: 'stewardship tests' });
+mainStatus = { verdict: 'ACCEPTED', metrics: {} };
+await tick(env);
+for (const s of ['s1', 's2', 's3']) await person(s, { bonus: 3 });
+await call('POST', '/admin/goals', 'core', { goals: [{ id: 'c9', kind: 'content', horizon: 'S', title: 'Standing', done_when: 'never', status: 'standing' }] });
+for (const n of [70, 71, 72, 73]) assert.equal((await call('POST', '/desk/tasks', 's1', { goal: 'c9', kind: 'test', title: `Steward task ${n}`, detail: 'a failing test for the issue' })).status, 201);
+const stewardPr = async (n, login, head) => {
+  const lease = (await call('GET', '/desk/next?kind=test', login)).data.lease;
+  assert.ok(lease, `a lease for #${n}`);
+  await hook('pull_request', { action: 'opened', pull_request: pr(n, login, head, `Lease: ${lease}`) });
+  await hook('status', { context: 'lastgame/verdict', sha: head, state: 'success', description: ok() });
+};
+const stewarded = (n) => ghCalls(`/issues/${n}/comments`).some((c) => c.body.body.startsWith('**Stewardship merge.**'));
+db.prepare("UPDATE accounts SET banned = 1 WHERE login NOT IN ('boss', 'alice')").run();
+calls.length = 0;
+await stewardPr(70, 'alice', 'st0');
+assert.equal(row('SELECT state FROM prs WHERE number = 70').state, 'checked', 'with nobody to draw, anyone else waits');
+await tick(env);
+assert.equal(ghCalls('/pulls/70/merge').length, 0);
+await stewardPr(71, 'boss', 'st1');
+assert.equal(row('SELECT state FROM prs WHERE number = 71').state, 'approved');
+await tick(env);
+assert.equal(ghCalls('/pulls/71/merge').length, 1, 'nobody to draw: the core team\'s change merges on the verdict');
+assert.ok(stewarded(71), 'and the desk says so on the pull request');
+assert.equal(row('SELECT why FROM prs WHERE number = 71').why, 'stewardship: there is no reviewer to draw', 'and on the Built page');
+assert.equal(row("SELECT COUNT(*) AS c FROM events WHERE type = 'review.steward' AND ref = '71'").c, 1, 'and in the public record');
+db.prepare("UPDATE accounts SET banned = 0 WHERE login IN ('s1', 's2', 's3')").run();
+await stewardPr(72, 'boss', 'st2');
+const stSeats = db.prepare('SELECT * FROM reviews WHERE pr = 72').all();
+assert.equal(stSeats.length, 3, 'with reviewers around, the desk draws them as for anyone');
+assert.equal(ghCalls('/pulls/72/merge').length, 0, 'and waits for them');
+await call('POST', '/desk/review', stSeats[0].reviewer, { review: stSeats[0].id, verdict: 'accept', reason: 'matches the task' });
+clock += RULES.reviewHours * HOUR + 60;
+await tick(env);
+assert.equal(ghCalls('/pulls/72/merge').length, 1, 'the window ended without a reject: merged, once');
+assert.equal(row('SELECT COUNT(*) AS c FROM reviews WHERE pr = 72 AND verdict IS NULL').c, 0, 'no seat stays open');
+await stewardPr(73, 'boss', 'st3');
+const stSeat = db.prepare('SELECT * FROM reviews WHERE pr = 73').get();
+await call('POST', '/desk/review', stSeat.reviewer, { review: stSeat.id, verdict: 'reject', reason: 'does not do what the task says' });
+clock += RULES.reviewHours * HOUR + 60;
+await tick(env);
+assert.equal(row('SELECT state FROM prs WHERE number = 73').state, 'open', 'a reject still sends it back');
+assert.equal(ghCalls('/pulls/73/merge').length, 0);
+const stDecoy = await call('POST', '/admin/decoy', 'core', { task: row("SELECT id FROM tasks WHERE title = 'Steward task 73'").id, login: 'boss', note: 'deliberately wrong' });
+db.prepare("UPDATE accounts SET banned = 1 WHERE login IN ('s1', 's2', 's3')").run();
+await hook('pull_request', { action: 'opened', pull_request: pr(74, 'boss', 'st4', `Lease: ${stDecoy.data.lease}`) });
+await hook('status', { context: 'lastgame/verdict', sha: 'st4', state: 'success', description: ok() });
+await tick(env);
+assert.equal(row('SELECT state FROM prs WHERE number = 74').state, 'checked', 'a decoy waits for reviewers, whoever plants it');
+assert.equal(ghCalls('/pulls/74/merge').length, 0, 'and is never merged');
+db.prepare('UPDATE accounts SET banned = 0').run();
+
 // The alpha's way out: a new season keeps accounts and the record, drops everything else.
 assert.equal((await call('POST', '/admin/season', 'core', { why: 'testing' })).status, 400, 'needs the confirmation');
 assert.equal((await call('POST', '/admin/season', 'alice', { confirm: 'start over', why: 'x' })).status, 401);

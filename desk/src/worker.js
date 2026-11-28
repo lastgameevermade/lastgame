@@ -321,7 +321,7 @@ async function startRound(env, pr) {
   const quorum = visual >= RULES.visualPct ? RULES.visualQuorum : RULES.quorum;
   const need = Math.min(quorum, accounts.filter((a) => a.login !== pr.author && canReview(a, now(env))).length);
   const picked = need ? pickReviewers(accounts, pr.author, need, now(env)) : null;
-  if (!picked) return false; // no reviewer yet: the cron tries again
+  if (!picked) return steward(env, pr, 'There is no reviewer to draw'); // anyone else waits: the cron tries again
   const round = pr.rounds + 1;
   await run(env, 'INSERT OR REPLACE INTO rounds (pr, round, need) VALUES (?, ?, ?)', pr.number, round, need);
   for (const r of picked) {
@@ -331,6 +331,21 @@ async function startRound(env, pr) {
   await run(env, "UPDATE prs SET state = 'review', rounds = ?, updated = ? WHERE number = ?", round, now(env), pr.number);
   await event(env, 'review.started', '', pr.number, `round ${round}`);
   return true;
+}
+
+/**
+ * Stewardship (CONSTITUTION.md): a volunteer swarm starts empty and may empty again, so a core team
+ * member's change never waits for reviewers who are not there. It still needs a lease and the
+ * checker's verdict, the merge is marked in public, and reviewers can challenge it afterwards.
+ */
+async function steward(env, pr, why) {
+  const l = pr.lease ? await one(env, 'SELECT decoy FROM leases WHERE id = ?', pr.lease) : null;
+  if (l?.decoy || !(await coreTeam(env)).includes(pr.author)) return false; // a decoy is never merged
+  await run(env, "UPDATE reviews SET verdict = 'expired' WHERE pr = ? AND verdict IS NULL", pr.number);
+  await run(env, "UPDATE prs SET state = 'approved', why = ?, updated = ? WHERE number = ?", `stewardship: ${why.toLowerCase()}`, now(env), pr.number);
+  await event(env, 'review.steward', '', pr.number, why.toLowerCase());
+  await comment(env, pr.number, `**Stewardship merge.** ${why}, so this change by the core team merges on the checker's verdict alone ([the rule](https://github.com/${env.REPO}/blob/main/CONSTITUTION.md#stewardship-while-reviewers-are-missing)). Reviewers can challenge it for ${RULES.challengeDays} days.`);
+  return true; // the clock merges what is approved, once
 }
 
 async function nextReview(env, a) {
@@ -700,6 +715,7 @@ export async function tick(env) {
     await run(env, "UPDATE reviews SET verdict = 'expired' WHERE id = ?", r.id);
     const pr = await one(env, 'SELECT * FROM prs WHERE number = ?', r.pr);
     if (pr.state !== 'review' || pr.head !== r.head) continue;
+    if (await steward(env, pr, 'The review window ended without a reject')) continue;
     const rows = await all(env, 'SELECT reviewer, verdict FROM reviews WHERE pr = ? AND round = ?', r.pr, r.round);
     const sub = standIn(await all(env, 'SELECT * FROM accounts WHERE banned = 0'), rows, pr.author, t);
     if (sub) await run(env, 'INSERT INTO reviews (id, pr, head, round, reviewer, due) VALUES (?, ?, ?, ?, ?, ?)', randomId(8), r.pr, r.head, r.round, sub, t + RULES.reviewHours * HOUR);

@@ -113,4 +113,7 @@ desk draws `visualQuorum` (5) reviewers instead of `quorum` (3).
 6. Cold start. On day one nobody has reputation. Give the founder's account
    +3 with `/admin/bonus`. Until there are three eligible reviewers, a review
    round takes every reviewer there is, at least one, and it grows back to
-   three by itself.
+   three by itself. A change by someone in `.github/core-team` does not wait
+   for reviewers who are not there (`steward` in the desk, "Stewardship" in
+   the constitution): that is how one founder starts the swarm, and keeps it
+   going when it empties.
