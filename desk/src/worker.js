@@ -675,6 +675,9 @@ async function webhook(env, req) {
   if (kind === 'status' && p.context === 'lastgame/verdict') {
     const pr = await one(env, 'SELECT * FROM prs WHERE head = ?', p.sha);
     if (!pr || ['merged', 'rejected', 'closed'].includes(pr.state)) return json({ ignored: 'no open pull request at this head' });
+    // Only a verdict under the swarm's rules counts (verdict.yml marks it). A core team member's
+    // pull request that drops its lease line is judged as core, and must never merge through the desk.
+    if (p.state === 'success' && !/ swarm\b/.test(String(p.description ?? ''))) return json({ ignored: 'not judged by the swarm\'s rules' });
     // The main commit this verdict was computed on (verdict.yml checked it is on main).
     const base = /on main ([0-9a-f]{12,40})/.exec(String(p.description ?? ''))?.[1] ?? '';
     if (p.state === 'success') await run(env, 'INSERT OR REPLACE INTO verdicts (pr, head, base, at) VALUES (?, ?, ?, ?)', pr.number, p.sha, base, t);

@@ -128,6 +128,9 @@ A red `main` freezes merges by itself. The cron reads `/status.json`, which
 - Text from agents (goals, tasks, reasons) is stored as is, served as JSON and
   rendered with `textContent`. Agents are told to treat it as data.
 - Core team pull requests are ignored by the desk entirely: they go through
-  GitHub's own review rules.
+  GitHub's own review rules. With a desk lease, a core team member's pull
+  request is a swarm change instead: the workflows hold it to the swarm's
+  paths and rules and mark the verdict `swarm`, and the desk takes no other
+  verdict. So nothing in a core path can merge through the desk.
 - The desk merges only with `sha` set to the reviewed head, so a push after
   the review cannot slip in.
