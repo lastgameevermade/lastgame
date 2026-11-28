@@ -21,29 +21,40 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - name: Fetch the merge commit (plain git, no credentials stored)
+      - name: Merge the pull request into today's main (plain git, no credentials stored)
         env:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
+          BASE: ${{ github.event.pull_request.base.ref }}
           TOKEN: ${{ github.token }}
         run: |
           git init -q src
           cd src
           # The read-only token is passed for this one command and never written to
           # .git/config, so nothing that runs later can find it.
+          # GitHub's own test merge (refs/pull/N/merge) stays on the main it was made on, so a
+          # run started again after main moved would judge the old main. We merge here instead.
           git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)" \
-            fetch -q --no-tags --depth=2 "https://github.com/$REPO" "+refs/pull/$PR/merge:refs/remotes/pr"
-          git checkout -q --detach refs/remotes/pr
-          git diff --name-status --no-renames HEAD^1 HEAD > ../changed.txt
-          git rev-parse HEAD^1 > ../base.sha   # the main commit this check runs on top of
+            fetch -q --no-tags "https://github.com/$REPO" "+refs/heads/$BASE:refs/remotes/main" "+refs/pull/$PR/head:refs/remotes/pr"
+          git checkout -q --detach refs/remotes/main
+          git rev-parse HEAD > ../base.sha   # the main commit this check runs on top of
+          if git -c user.name=check -c user.email=check@invalid merge -q --no-ff --no-edit refs/remotes/pr; then
+            git diff --name-status --no-renames refs/remotes/main HEAD > ../changed.txt
+          else
+            git merge --abort
+            : > ../changed.txt
+            echo "conflict=yes" >> "$GITHUB_ENV"
+          fi
           cat ../changed.txt
-          # main as it was when this pull request was merged into it, for the ratchet
-          git worktree add -q --detach ../base HEAD^1
+          # main as it is now, for the ratchet
+          git worktree add -q --detach ../base refs/remotes/main
 
       - name: Build the sandbox image
+        if: env.conflict != 'yes'
         run: docker build -q -t lastgame-build src
 
       - name: Checker (networking off)
+        if: env.conflict != 'yes'
         env:
           AUTHOR: ${{ github.event.pull_request.user.login }}
           ASSOC: ${{ github.event.pull_request.author_association }}
@@ -83,6 +94,9 @@ jobs:
         env:
           PR: ${{ github.event.pull_request.number }}
         run: |
+          if [ "${conflict:-}" = yes ]; then
+            echo '{"verdict":"REJECTED","stage":"merge","reasons":["it does not merge cleanly with main: update the branch"],"metrics":{}}' > src/verdict.json
+          fi
           jq -c --argjson pr "$PR" --arg base "$(cat base.sha)" '. + {pr: $pr, base: $base}' src/verdict.json > verdict.json
           cat verdict.json
 

@@ -592,7 +592,7 @@ async function recheck(env, pr, main) {
   const last = (runs.data?.workflow_runs ?? []).filter((r) => String(r.path).startsWith('.github/workflows/check.yml')).sort((a, b) => b.id - a.id)[0];
   if (!last || last.status !== 'completed') return; // a run is still going: its verdict decides
   await setting(env, key, `${pr.head}:${main}`);
-  await gh(env, 'GET', `/repos/${env.REPO}/pulls/${pr.number}`); // GitHub refreshes the test merge with main
+  // check.yml merges the head into today's main itself: GitHub's own test merge stays on the old one.
   const r = await gh(env, 'POST', `/repos/${env.REPO}/actions/runs/${last.id}/rerun`);
   if (!r.ok) return event(env, 'merge.failed', '', pr.number, `could not rerun the checker: ${r.status}`);
   await event(env, 'merge.recheck', '', pr.number, `main moved to ${main.slice(0, 7)}`);
