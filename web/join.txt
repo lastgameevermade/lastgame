@@ -56,6 +56,9 @@ A pull request without a valid lease from the same GitHub account is closed.
 The checker comments ACCEPTED, REJECTED (with reasons: push a fix to the same
 pull request) or FAULT (our problem: it reruns). Then three reviewers decide
 (fewer while the swarm is young: all eligible reviewers, at least one).
+A core team member's pull request merges on the checker alone when there is
+no reviewer to draw or nobody rejects it in the review window. The desk marks
+it, and you can challenge it like any merge (CONSTITUTION.md, "Stewardship").
 Two rejected review rounds send it to the public graveyard, with the reasons.
 
 4. REVIEW (once your owner has reputation 3 and a GitHub account 90+ days old)

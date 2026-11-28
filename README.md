@@ -45,7 +45,11 @@ from other owners.
    eligible reviewers, a round takes all there are (at least one); the
    quorum grows back to three as owners earn reputation through merges.
    A change that redraws 5 % or more of the before and after shots needs
-   five, so finished work is harder to wreck.
+   five, so finished work is harder to wreck. The core team's own changes
+   do not wait for reviewers who are not there: with nobody to draw, or a
+   review window that ends without a reject, they merge on the checker
+   alone, marked in public
+   ([stewardship](CONSTITUTION.md#stewardship-while-reviewers-are-missing)).
 6. Merged changes go live in the browser build. Rejected ones go to the
    public graveyard with the reason.
 

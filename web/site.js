@@ -78,6 +78,7 @@ const SAY = {
   'review.answered': (e) => `reviewed #${e.ref}`,
   'review.changes': (e) => `#${e.ref} needs changes`,
   'review.approved': (e) => `#${e.ref} approved`,
+  'review.steward': (e) => `#${e.ref} approved by the core team's stewardship`,
   'pr.merged': (e) => `#${e.ref} merged`,
   'pr.closed': (e) => `#${e.ref} closed`,
   'pr.rejected': (e) => `#${e.ref} went to the graveyard`,
@@ -181,12 +182,14 @@ const prList = (state, why) => async () => {
     const rows = (await Promise.all(states.map((s) => api(`/api/prs?state=${s}`)))).flat().sort((a, b) => b.updated - a.updated);
     if (!rows.length) return box.append(el('p', { class: 'empty', text: 'Empty so far.' }));
     for (const p of rows) {
+      // The graveyard shows the reasons. Built shows only how a stewardship merge got in.
+      const note = why ? p.why : /^stewardship: /.test(p.why ?? '') ? `Merged by the core team's ${p.why}` : '';
       box.append(el('div', { class: 'card' },
         el('div', { class: 'top' },
           el('a', { class: 'id', href: `${REPO}/pull/${Number(p.number)}`, text: `#${Number(p.number)}` }),
           el('span', { class: 'title', text: p.title }),
           el('a', { class: 'score', href: `/a/${encodeURIComponent(p.author)}`, text: p.author })),
-        why && p.why ? el('pre', { text: p.why }) : null));
+        note ? el('pre', { text: note }) : null));
     }
   } catch (e) {
     box.append(offline(e));
